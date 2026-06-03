@@ -503,7 +503,9 @@ class GoodCleanApp(App):
     def _get_selected_paths(self) -> list[str]:
         """获取选中的路径列表"""
         tree = self.query_one("#dir-tree", DirectoryTree)
-        return list(tree.selected_paths)
+        paths = list(tree.selected_paths)
+        self.notify(f"当前选中: {len(paths)} 个项目", timeout=2)
+        return paths
 
     def _get_path_size(self, path: str) -> int:
         """获取路径大小"""

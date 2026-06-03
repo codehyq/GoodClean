@@ -24,12 +24,13 @@ class DirectoryTree(Widget):
     ]
 
     selected_path: reactive[str] = reactive("")
-    selected_paths: reactive[set[str]] = reactive(set)
+    selected_paths: reactive[set[str]] = reactive(set, init=False)
 
     def __init__(self, root_dir: Optional[DirInfo] = None, **kwargs):
         super().__init__(**kwargs)
         self._root_dir = root_dir
         self._tree: Optional[Tree] = None
+        self.selected_paths = set()  # 确保每个实例有自己的 set
 
     def compose(self):
         self._tree = Tree("扫描中...")
@@ -139,11 +140,17 @@ class DirectoryTree(Widget):
 
     def action_toggle_select(self) -> None:
         """切换当前节点的选中状态"""
-        if self._tree and self._tree.cursor_node and self._tree.cursor_node.data:
-            path = self._tree.cursor_node.data
+        if not self._tree:
+            return
+        
+        # 获取当前光标所在的节点
+        cursor_node = self._tree.cursor_node
+        if cursor_node and cursor_node.data:
+            path = cursor_node.data
             current = set(self.selected_paths)
             if path in current:
                 current.discard(path)
             else:
                 current.add(path)
             self.selected_paths = current
+            self.notify(f"已选中: {len(self.selected_paths)} 个项目")
