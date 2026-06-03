@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "goodclean"
+version = "1.0.0"
+description = "终端磁盘清理工具 - 扫描、分析并清理占用空间的文件"
+requires-python = ">=3.10"
+dependencies = [
+    "textual>=0.80",
+    "rich>=13.0",
+    "send2trash>=1.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+]
+
+[project.scripts]
+goodclean = "goodclean.__main__:main"
