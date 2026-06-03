@@ -486,7 +486,7 @@ class GoodCleanApp(App):
             "↑↓       导航目录树\n"
             "Enter    展开/折叠目录\n"
             "Space    选中/取消选中\n"
-            "/        搜索文件\n"
+            "//       搜索文件\n"
             "d        移到回收站\n"
             "D        永久删除\n"
             "s        切换排序方式\n"
@@ -533,6 +533,6 @@ class GoodCleanApp(App):
     def _make_help_text(self) -> str:
         """生成底部帮助文本"""
         return (
-            "  [/] 搜索  [Enter] 展开  [Space] 选中  [d] 回收站  [D] 永久删除  "
-            "[s] 排序  [t] 类型  [e] 导出  [f] 查重  [r] 重扫  [?] 帮助  [q] 退出"
+            "  [[/]] 搜索  [Enter] 展开  [Space] 选中  [d] 回收站  [D] 永久删除  "
+            "[s] 排序  [t] 类型  [e] 导出  [f] 查重  [r] 重扫  [[]?]] 帮助  [q] 退出"
         )
