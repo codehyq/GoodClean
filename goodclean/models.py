@@ -18,6 +18,7 @@ class FileInfo:
     modified_time: float
     is_junk: bool = False
     junk_reason: str = ""
+    file_type: str = ""  # 文件类型分类（通过扩展名或文件头识别）
 
     @classmethod
     def from_path(cls, path: str | Path) -> Optional["FileInfo"]:

@@ -14,7 +14,7 @@ from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Button, Footer, Header, Input, RadioSet, Static, Switch
 
-from .analyzer import analyze, format_size, get_file_type_distribution
+from .analyzer import analyze, format_size
 from .cache import clear_cache, get_cache_info, list_all_caches, load_cache, save_cache
 from .cleaner import CleanResult, permanent_delete, trash_files
 from .constants import ScanStatus
@@ -688,13 +688,16 @@ class GoodCleanApp(App):
         self._showing_types = not self._showing_types
         size_bar = self.query_one("#size-bar", SizeBar)
         if self._showing_types:
-            dist = get_file_type_distribution(self._root_dir)
-            from .models import DirInfo as DI
-            type_dirs = []
-            for ext, (count, size) in list(dist.items())[:20]:
-                type_dirs.append(DI(path=ext, name=f"{ext} ({count}个文件)",
-                                   total_size=size, file_count=count))
-            size_bar.set_data(type_dirs, "Top 20")
+            from .analyzer import get_file_category_distribution
+            categories = get_file_category_distribution(self._root_dir)
+            total_count = sum(c["count"] for c in categories)
+            total_size = sum(c["total_size"] for c in categories)
+            self.notify(
+                f"文件类型分析: {len(categories)} 种类型 | "
+                f"{total_count} 个文件 | {format_size(total_size)}",
+                timeout=3,
+            )
+            size_bar.set_category_data(categories, f"类型分布 Top {len(categories)}")
         else:
             if self._scan_result:
                 size_bar.set_data(self._scan_result.top_dirs, "Top 20")

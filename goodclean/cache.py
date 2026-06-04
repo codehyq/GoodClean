@@ -221,7 +221,7 @@ def _serialize_dir(dir_info: Optional[DirInfo], max_depth: int = 50, _depth: int
 
 def _serialize_file(file_info: FileInfo) -> dict:
     """将 FileInfo 序列化为字典"""
-    return {
+    data = {
         "path": file_info.path,
         "name": file_info.name,
         "size": file_info.size,
@@ -230,6 +230,9 @@ def _serialize_file(file_info: FileInfo) -> dict:
         "is_junk": file_info.is_junk,
         "junk_reason": file_info.junk_reason,
     }
+    if file_info.file_type:
+        data["file_type"] = file_info.file_type
+    return data
 
 
 def _deserialize_dir(data: dict) -> DirInfo:
@@ -258,4 +261,5 @@ def _deserialize_file(data: dict) -> FileInfo:
         modified_time=data.get("modified_time", 0),
         is_junk=data.get("is_junk", False),
         junk_reason=data.get("junk_reason", ""),
+        file_type=data.get("file_type", ""),
     )

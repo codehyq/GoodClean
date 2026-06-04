@@ -1,4 +1,4 @@
-"""分析引擎：大小聚合、垃圾文件识别、Top N 排行"""
+"""分析引擎：大小聚合、垃圾文件识别、Top N 排行、文件类型分析"""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from .constants import (
     JUNK_FILENAMES,
     LARGE_FILE_THRESHOLD,
 )
+from .file_type_identifier import classify_file_type
 from .models import DirInfo, FileInfo, ScanResult
 
 
@@ -66,19 +67,21 @@ def format_size(size_bytes: int) -> str:
 
 
 def _mark_junk_files(dir_info: DirInfo, root_path: str) -> None:
-    """递归标记垃圾文件"""
+    """递归标记垃圾文件并分类文件类型"""
     # 检查目录本身是否是垃圾目录
     dir_name = Path(dir_info.path).name.lower()
     is_junk_dir = dir_name in JUNK_DIRNAMES
 
     for f in dir_info.files:
         _check_file_junk(f, is_junk_dir)
+        f.file_type = classify_file_type(f.extension, f.path, f.size)
 
     for child in dir_info.children:
         child_name = Path(child.path).name.lower()
         child_is_junk = child_name in JUNK_DIRNAMES
         for f in child.files:
             _check_file_junk(f, child_is_junk)
+            f.file_type = classify_file_type(f.extension, f.path, f.size)
         _mark_junk_files(child, root_path)
 
 
@@ -165,3 +168,39 @@ def get_file_type_distribution(dir_info: DirInfo) -> dict[str, tuple[int, int]]:
 
     _collect(dir_info)
     return dict(sorted(dist.items(), key=lambda x: x[1][1], reverse=True))
+
+
+def get_file_category_distribution(dir_info: DirInfo) -> list[dict]:
+    """获取文件按逻辑类型的分布统计。
+
+    使用 file_type 字段（已通过文件头/扩展名分类），返回按大小降序的列表。
+    返回格式：[{"category": "图片", "count": 120, "total_size": 52428800, "top_ext": ".jpg"}, ...]
+    """
+    categories: dict[str, dict[str, object]] = {}
+    ext_counter: dict[str, dict[str, int]] = {}  # category -> {ext: count}
+
+    def _collect(d: DirInfo) -> None:
+        for f in d.files:
+            cat = f.file_type or "其他"
+            if cat not in categories:
+                categories[cat] = {"category": cat, "count": 0, "total_size": 0, "top_ext": ""}
+                ext_counter[cat] = {}
+            categories[cat]["count"] = int(categories[cat]["count"]) + 1  # type: ignore
+            categories[cat]["total_size"] = int(categories[cat]["total_size"]) + f.size  # type: ignore
+
+            ext = f.extension or "(无)"
+            ext_counter[cat][ext] = ext_counter[cat].get(ext, 0) + 1
+
+        for child in d.children:
+            _collect(child)
+
+    _collect(dir_info)
+
+    # 为每个分类找 top 扩展名
+    for cat, exts in ext_counter.items():
+        if exts:
+            top_ext = max(exts, key=exts.get)  # type: ignore
+            categories[cat]["top_ext"] = top_ext
+
+    result = sorted(categories.values(), key=lambda x: x["total_size"], reverse=True)  # type: ignore
+    return result  # type: ignore
