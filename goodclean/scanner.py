@@ -200,19 +200,21 @@ class DirectoryScanner:
     # ==================== 增量扫描辅助 ====================
 
     def _is_dir_unchanged(self, dir_info: DirInfo) -> bool:
-        """检查目录是否有变化（基于修改时间）"""
+        """检查目录是否有变化（基于文件/子目录数量和修改时间）"""
         if dir_info.path not in self._old_dirs:
             return False
 
         try:
-            # 检查目录本身的修改时间
             stat = os.stat(dir_info.path)
             old = self._old_dirs[dir_info.path]
 
-            # 简单策略：如果目录修改时间没变，认为没变化
-            # 注意：这不能检测到文件内容修改但目录 mtime 未变的情况
-            # 对于大多数场景足够了
-            return True
+            # 简单策略：比较文件数量和子目录数量
+            # 这对于大多数场景足够了
+            current_entries = len(os.listdir(dir_info.path))
+            old_entries = old.file_count + old.dir_count
+
+            # 如果条目数量相同，认为目录结构未变
+            return current_entries == old_entries
         except OSError:
             return False
 

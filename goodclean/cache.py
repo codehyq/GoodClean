@@ -49,11 +49,11 @@ def save_cache(result: ScanResult) -> Optional[Path]:
 
 def load_cache(root_path: str, max_age_hours: int = 24) -> Optional[ScanResult]:
     """从缓存文件加载扫描结果
-    
+
     Args:
         root_path: 扫描路径
         max_age_hours: 缓存最大有效期（小时），默认 24 小时
-    
+
     Returns:
         缓存的 ScanResult，如果缓存不存在或过期则返回 None
     """
@@ -116,10 +116,10 @@ def load_cache(root_path: str, max_age_hours: int = 24) -> Optional[ScanResult]:
 
 def clear_cache(root_path: Optional[str] = None) -> int:
     """清除缓存
-    
+
     Args:
         root_path: 如果指定，只清除该路径的缓存；否则清除所有缓存
-    
+
     Returns:
         清除的缓存文件数
     """
@@ -169,9 +169,12 @@ def get_cache_info(root_path: str) -> Optional[dict]:
 
 # ==================== 序列化辅助函数 ====================
 
-def _serialize_dir(dir_info: DirInfo) -> dict:
-    """将 DirInfo 序列化为字典"""
-    return {
+def _serialize_dir(dir_info: Optional[DirInfo], max_depth: int = 50, _depth: int = 0) -> Optional[dict]:
+    """将 DirInfo 序列化为字典，限制最大深度防止 JSON 过大"""
+    if dir_info is None:
+        return None
+
+    data = {
         "path": dir_info.path,
         "name": dir_info.name,
         "total_size": dir_info.total_size,
@@ -179,9 +182,15 @@ def _serialize_dir(dir_info: DirInfo) -> dict:
         "dir_count": dir_info.dir_count,
         "has_permission_error": dir_info.has_permission_error,
         "is_symlink": dir_info.is_symlink,
-        "children": [_serialize_dir(c) for c in dir_info.children],
         "files": [_serialize_file(f) for f in dir_info.files],
     }
+
+    if _depth < max_depth:
+        data["children"] = [_serialize_dir(c, max_depth, _depth + 1) for c in dir_info.children]
+    else:
+        data["children"] = []
+
+    return data
 
 
 def _serialize_file(file_info: FileInfo) -> dict:
@@ -208,7 +217,7 @@ def _deserialize_dir(data: dict) -> DirInfo:
         has_permission_error=data.get("has_permission_error", False),
         is_symlink=data.get("is_symlink", False),
     )
-    dir_info.children = [_deserialize_dir(c) for c in data.get("children", [])]
+    dir_info.children = [_deserialize_dir(c) for c in data.get("children", []) if c is not None]
     dir_info.files = [_deserialize_file(f) for f in data.get("files", [])]
     return dir_info
 

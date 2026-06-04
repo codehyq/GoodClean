@@ -77,6 +77,8 @@ def _mark_junk_files(dir_info: DirInfo, root_path: str) -> None:
     for child in dir_info.children:
         child_name = Path(child.path).name.lower()
         child_is_junk = child_name in JUNK_DIRNAMES
+        for f in child.files:
+            _check_file_junk(f, child_is_junk)
         _mark_junk_files(child, root_path)
 
 
