@@ -204,6 +204,19 @@ class GoodCleanApp(App):
         progress = self.query_one("#scan-progress", Static)
         progress.update(f"  ❌ 扫描失败: {error}")
 
+    def _update_progress_done(self) -> None:
+        """恢复进度栏为完成状态"""
+        if self._scan_result:
+            result = self._scan_result
+            duration_str = f"{result.scan_duration:.1f}s"
+            size_str = format_size(result.total_size)
+            progress = self.query_one("#scan-progress", Static)
+            progress.update(
+                f"  ✅ 扫描完成 | {size_str} | "
+                f"{result.total_files} 个文件 | {result.total_dirs} 个目录 | "
+                f"耗时 {duration_str}"
+            )
+
     def on_directory_tree_selected_path_changed(self, event) -> None:
         """目录树选中路径变化"""
         path = event.value
@@ -310,8 +323,16 @@ class GoodCleanApp(App):
         if not paths:
             return
 
+        # 显示进度
+        progress = self.query_one("#scan-progress", Static)
+        progress.update(f"  ⏳ 正在将 {len(paths)} 个项目移到回收站...")
+        self._do_trash(paths)
+
+    @work(exclusive=True, thread=True)
+    def _do_trash(self, paths: list[str]) -> None:
+        """在后台线程中执行回收站操作"""
         result = trash_files(paths)
-        self._show_clean_result(result, "回收站")
+        self.app.call_from_thread(self._show_clean_result, result, "回收站")
 
     def action_permanent_delete_selected(self) -> None:
         """永久删除选中项"""
@@ -343,8 +364,16 @@ class GoodCleanApp(App):
         if not paths:
             return
 
+        # 显示进度
+        progress = self.query_one("#scan-progress", Static)
+        progress.update(f"  ⏳ 正在永久删除 {len(paths)} 个项目...")
+        self._do_permanent_delete(paths)
+
+    @work(exclusive=True, thread=True)
+    def _do_permanent_delete(self, paths: list[str]) -> None:
+        """在后台线程中执行永久删除"""
         result = permanent_delete(paths)
-        self._show_clean_result(result, "永久删除")
+        self.app.call_from_thread(self._show_clean_result, result, "永久删除")
 
     def _show_clean_result(self, result: CleanResult, mode: str) -> None:
         """显示清理结果"""
@@ -354,6 +383,9 @@ class GoodCleanApp(App):
         else:
             msg = f"✅ {result.success_count} 个已{mode}，释放 {freed}"
         self.notify(msg)
+
+        # 恢复进度栏
+        self._update_progress_done()
 
         # 清除选中并刷新
         self._selected_paths.clear()
@@ -526,16 +558,29 @@ class GoodCleanApp(App):
             self.notify("请先等待扫描完成", severity="warning")
             return
 
-        # 生成默认文件名
+        # 显示进度
+        progress = self.query_one("#scan-progress", Static)
+        progress.update("  ⏳ 正在导出报告...")
+        self._do_export()
+
+    @work(exclusive=True, thread=True)
+    def _do_export(self) -> None:
+        """在后台线程中执行导出"""
         from datetime import datetime
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         default_name = f"goodclean_report_{timestamp}.html"
 
         try:
             output_path = export_report(self._scan_result, default_name)
-            self.notify(f"报告已导出: {output_path}", timeout=5)
+            self.app.call_from_thread(
+                self.notify, f"报告已导出: {output_path}", {"timeout": 5}
+            )
         except Exception as e:
-            self.notify(f"导出失败: {e}", severity="error")
+            self.app.call_from_thread(
+                self.notify, f"导出失败: {e}", {"severity": "error"}
+            )
+        finally:
+            self.app.call_from_thread(self._update_progress_done)
 
     def _make_help_text(self) -> str:
         """生成底部帮助文本（转义所有方括号避免 Rich markup 解析）"""

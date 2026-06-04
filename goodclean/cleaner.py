@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import stat
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -64,9 +65,9 @@ def permanent_delete(paths: list[str]) -> CleanResult:
 
             size = _get_path_size(p)
             if p.is_dir():
-                shutil.rmtree(p)
+                shutil.rmtree(p, onerror=_handle_remove_error)
             else:
-                p.unlink()
+                _remove_file(p)
             result.success_count += 1
             result.freed_bytes += size
             result.cleaned_paths.append(path)
@@ -77,6 +78,35 @@ def permanent_delete(paths: list[str]) -> CleanResult:
             logger.error("永久删除失败 %s: %s", path, e)
 
     return result
+
+
+def _handle_remove_error(func, path, exc_info) -> None:
+    """处理删除错误，尝试修改权限后重试"""
+    exc_type = exc_info[0]
+    if exc_type is PermissionError:
+        # 尝试修改文件权限后重试
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except OSError:
+            pass
+    elif exc_type is OSError:
+        # Windows 上文件被占用时，尝试修改权限
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except OSError:
+            pass
+
+
+def _remove_file(path: Path) -> None:
+    """删除单个文件，处理权限问题"""
+    try:
+        path.unlink()
+    except PermissionError:
+        # 尝试修改权限后重试
+        os.chmod(path, stat.S_IWRITE)
+        path.unlink()
 
 
 def _get_path_size(path: Path) -> int:

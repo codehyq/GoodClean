@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Callable, Optional
 
 from textual.app import ComposeResult
@@ -20,28 +19,41 @@ class SearchBar(Widget):
         height: 3;
         padding: 0 1;
         background: $surface;
-        border-bottom: solid $primary;
+        border-bottom: tall $primary;
+    }
+
+    SearchBar > Horizontal {
+        height: 3;
+        align: left middle;
+    }
+
+    #search-icon {
+        width: 3;
+        content-align: left middle;
     }
 
     #search-input {
         width: 1fr;
-        margin: 0 1;
+        min-width: 20;
+        height: 3;
     }
 
     #filter-type {
-        width: 15;
+        width: 18;
         margin: 0 1;
     }
 
     #filter-size {
-        width: 15;
+        width: 18;
         margin: 0 1;
     }
 
     #search-info {
         width: auto;
+        min-width: 15;
         margin: 0 1;
         color: $text-muted;
+        content-align: right middle;
     }
     """
 
@@ -57,7 +69,7 @@ class SearchBar(Widget):
         with Horizontal():
             yield Static("🔍", id="search-icon")
             yield Input(
-                placeholder="搜索文件名...",
+                placeholder="输入关键词搜索...",
                 id="search-input",
             )
             yield Select(
@@ -73,7 +85,7 @@ class SearchBar(Widget):
                     (".tmp (临时)", ".tmp"),
                     (".bak (备份)", ".bak"),
                 ],
-                prompt="文件类型",
+                prompt="类型",
                 id="filter-type",
             )
             yield Select(
@@ -84,7 +96,7 @@ class SearchBar(Widget):
                     ("> 100 MB", "100mb"),
                     ("> 1 GB", "1gb"),
                 ],
-                prompt="文件大小",
+                prompt="大小",
                 id="filter-size",
             )
             yield Static("", id="search-info")
