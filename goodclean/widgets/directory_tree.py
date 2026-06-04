@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Optional
 
 from rich.text import Text
@@ -17,21 +16,13 @@ from ..models import DirInfo
 
 
 class SelectableTree(Tree):
-    """可选中的 Tree 子类，将 Space 键改为选中/取消选中"""
-
-    BINDINGS = Tree.BINDINGS + [
-        Binding("c", "toggle_node", "展开/折叠", show=False),
-    ]
+    """可选中的 Tree 子类，拦截 Space 键改为选中/取消选中"""
 
     def __init__(self, *args, on_space=None, **kwargs):
         super().__init__(*args, **kwargs)
         self._on_space = on_space
 
-    def action_toggle_node(self) -> None:
-        """展开/折叠节点（用 Enter 或 c 键）"""
-        super().action_toggle_node()
-
-    def on_key(self, event) -> None:
+    def _on_key(self, event) -> None:
         """拦截 Space 键，改为选中操作"""
         if event.key == "space":
             event.prevent_default()
@@ -39,7 +30,8 @@ class SelectableTree(Tree):
             if self._on_space:
                 self._on_space()
             return
-        super().on_key(event)
+        # 其他键交给父类处理
+        super()._on_key(event)
 
 
 class DirectoryTree(Widget):
@@ -105,7 +97,6 @@ class DirectoryTree(Widget):
             text.append(f"🔗 {name}", style="dim cyan")
         else:
             icon = self._get_dir_icon(dir_info)
-            # 选中状态显示
             check = "☑" if dir_info.path in self.selected_paths else "☐"
             text.append(f"{check} {icon} {name}", style="bold")
 
@@ -181,12 +172,11 @@ class DirectoryTree(Widget):
             current = set(self.selected_paths)
             if path in current:
                 current.discard(path)
-                self.notify(f"已取消选中: {path}", timeout=1)
+                action = "取消选中"
             else:
                 current.add(path)
-                self.notify(f"已选中: {path}", timeout=1)
+                action = "已选中"
             self.selected_paths = current
-            self.notify(f"当前共选中: {len(self.selected_paths)} 个项目", timeout=2)
-            # 刷新 Tree 显示以更新选中状态图标
+            self.notify(f"{action} | 当前共选中 {len(self.selected_paths)} 个项目", timeout=2)
             if self._tree:
                 self._tree.refresh()

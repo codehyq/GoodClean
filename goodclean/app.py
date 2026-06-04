@@ -357,6 +357,11 @@ class GoodCleanApp(App):
 
         # 清除选中并刷新
         self._selected_paths.clear()
+        try:
+            tree = self.query_one("#dir-tree", DirectoryTree)
+            tree.selected_paths = set()
+        except Exception:
+            pass
         if result.success_count > 0:
             self._start_scan()
 
@@ -533,8 +538,8 @@ class GoodCleanApp(App):
             self.notify(f"导出失败: {e}", severity="error")
 
     def _make_help_text(self) -> str:
-        """生成底部帮助文本"""
+        """生成底部帮助文本（转义所有方括号避免 Rich markup 解析）"""
         return (
-            "  [[/]] 搜索  [Enter] 展开  [Space] 选中  [d] 回收站  [D] 永久删除  "
-            "[s] 排序  [t] 类型  [e] 导出  [f] 查重  [r] 重扫  [[]?]] 帮助  [q] 退出"
+            "  [[/]] 搜索  [[Enter]] 展开  [[Space]] 选中  [[d]] 回收站  [[D]] 永久删除  "
+            "[[s]] 排序  [[t]] 类型  [[e]] 导出  [[f]] 查重  [[r]] 重扫  [[?]] 帮助  [[q]] 退出"
         )
