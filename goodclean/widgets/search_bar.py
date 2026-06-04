@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Callable, Optional
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal
+from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Input, Select, Static
@@ -17,43 +17,38 @@ class SearchBar(Widget):
     DEFAULT_CSS = """
     SearchBar {
         height: 3;
-        padding: 0 1;
-        background: $surface;
-        border-bottom: tall $primary;
+        dock: top;
     }
 
     SearchBar > Horizontal {
         height: 3;
-        align: left middle;
     }
 
     #search-icon {
         width: 3;
-        content-align: left middle;
+        height: 3;
     }
 
     #search-input {
-        width: 1fr;
-        min-width: 20;
+        width: 2fr;
         height: 3;
     }
 
     #filter-type {
-        width: 18;
-        margin: 0 1;
+        width: 1fr;
+        max-width: 20;
+        height: 3;
     }
 
     #filter-size {
-        width: 18;
-        margin: 0 1;
+        width: 1fr;
+        max-width: 18;
+        height: 3;
     }
 
     #search-info {
-        width: auto;
-        min-width: 15;
-        margin: 0 1;
-        color: $text-muted;
-        content-align: right middle;
+        width: 15;
+        height: 3;
     }
     """
 
@@ -67,7 +62,7 @@ class SearchBar(Widget):
 
     def compose(self) -> ComposeResult:
         with Horizontal():
-            yield Static("🔍", id="search-icon")
+            yield Static(" 🔍 ", id="search-icon")
             yield Input(
                 placeholder="输入关键词搜索...",
                 id="search-input",
@@ -99,7 +94,7 @@ class SearchBar(Widget):
                 prompt="大小",
                 id="filter-size",
             )
-            yield Static("", id="search-info")
+            yield Static(" ", id="search-info")
 
     def on_input_changed(self, event: Input.Changed) -> None:
         """搜索输入变化"""
@@ -133,9 +128,9 @@ class SearchBar(Widget):
         """更新搜索结果数量显示"""
         info = self.query_one("#search-info", Static)
         if self.search_query or self.filter_type or self.filter_size:
-            info.update(f"找到 {count}/{total}")
+            info.update(f" {count}/{total} ")
         else:
-            info.update("")
+            info.update(" ")
 
     def clear_filters(self) -> None:
         """清除所有过滤条件"""

@@ -34,6 +34,51 @@ class GoodCleanApp(App):
     SUB_TITLE = "终端磁盘清理工具"
 
     CSS = """
+    #top-bar {
+        dock: top;
+        height: auto;
+    }
+
+    #scan-progress {
+        height: 3;
+        padding: 0 1;
+    }
+
+    SearchBar {
+        height: 3;
+    }
+
+    SearchBar > Horizontal {
+        height: 3;
+    }
+
+    #search-icon {
+        width: 3;
+        height: 3;
+    }
+
+    #search-input {
+        width: 2fr;
+        height: 3;
+    }
+
+    #filter-type {
+        width: 1fr;
+        max-width: 20;
+        height: 3;
+    }
+
+    #filter-size {
+        width: 1fr;
+        max-width: 18;
+        height: 3;
+    }
+
+    #search-info {
+        width: 15;
+        height: 3;
+    }
+
     #main-container {
         height: 1fr;
     }
@@ -47,19 +92,6 @@ class GoodCleanApp(App):
     #right-panel {
         width: 1fr;
         min-width: 40;
-    }
-
-    #status-bar {
-        height: 3;
-        dock: bottom;
-        padding: 0 1;
-        background: $surface;
-        border-top: solid $primary;
-    }
-
-    #scan-progress {
-        height: 3;
-        padding: 0 1;
     }
 
     DirectoryTree {
@@ -106,8 +138,9 @@ class GoodCleanApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static("", id="scan-progress")
-        yield SearchBar(id="search-bar")
+        with Vertical(id="top-bar"):
+            yield Static("", id="scan-progress")
+            yield SearchBar(id="search-bar")
 
         with Horizontal(id="main-container"):
             with Vertical(id="left-panel"):
