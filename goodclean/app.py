@@ -14,12 +14,13 @@ from textual.reactive import reactive
 from textual.widgets import Footer, Header, Label, ProgressBar, Static
 
 from .analyzer import analyze, format_size, get_file_type_distribution
+from .cache import load_cache, save_cache
 from .cleaner import CleanResult, permanent_delete, trash_files
 from .constants import ScanStatus
 from .duplicate_finder import find_duplicates, get_duplicate_stats
 from .exporter import export_report
 from .models import DirInfo, ScanResult
-from .scanner import DirectoryScanner
+from .scanner import DirectoryScanner, build_old_dirs_map
 from .widgets.confirm_dialog import ConfirmDialog
 from .widgets.directory_tree import DirectoryTree
 from .widgets.file_info import FileInfoPanel
@@ -167,14 +168,25 @@ class GoodCleanApp(App):
 
     @work(exclusive=True, thread=True)
     def _do_scan(self) -> None:
-        """在后台线程中执行扫描"""
+        """在后台线程中执行扫描（带缓存 + 增量扫描支持）"""
+        # 尝试加载缓存
+        cached = load_cache(self._scan_path)
+        if cached:
+            self.app.call_from_thread(self._on_scan_complete, cached)
+            return
+
         start_time = time.time()
 
+        # 创建扫描器
         scanner = DirectoryScanner(self._scan_path)
 
-        # 由于在工作线程中，需要同步执行扫描
-        import asyncio
-        loop = asyncio.new_event_loop()
+        # 如果有旧扫描数据，启用增量扫描
+        if self._scan_result and self._scan_result.root_dir:
+            old_map = build_old_dirs_map(self._scan_result.root_dir)
+            scanner.set_old_dirs(old_map)
+            self.app.call_from_thread(
+                self._update_progress, "增量扫描中...", 0, 0
+            )
 
         def on_progress(dirs: int, errors: int) -> None:
             self.app.call_from_thread(
@@ -185,18 +197,25 @@ class GoodCleanApp(App):
         self._scanner = scanner
 
         try:
-            root_dir = loop.run_until_complete(scanner.scan())
+            import asyncio
+            loop = asyncio.new_event_loop()
+            try:
+                root_dir = loop.run_until_complete(scanner.scan())
+            finally:
+                loop.close()
+
             duration = time.time() - start_time
 
             # 分析结果
             result = analyze(root_dir, self._scan_path)
             result.scan_duration = duration
 
+            # 保存到缓存
+            save_cache(result)
+
             self.app.call_from_thread(self._on_scan_complete, result)
         except Exception as e:
             self.app.call_from_thread(self._on_scan_error, str(e))
-        finally:
-            loop.close()
 
     def _update_progress(self, text: str, dirs: int, errors: int) -> None:
         """更新进度显示"""
