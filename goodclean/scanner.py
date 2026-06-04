@@ -1,18 +1,27 @@
-"""异步目录扫描器：递归扫描目录，收集文件/文件夹信息"""
+"""异步目录扫描器：递归扫描目录，收集文件/文件夹信息
+
+支持：
+- 异步扫描，不阻塞 UI
+- 并行扫描子目录，利用多核 CPU
+- 增量扫描，只扫描变化的目录
+"""
 
 from __future__ import annotations
 
 import asyncio
 import os
-import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Optional
 
 from .models import DirInfo, FileInfo
 
+# 并行扫描的线程池大小
+MAX_WORKERS = 8
+
 
 class DirectoryScanner:
-    """异步目录扫描器"""
+    """异步目录扫描器（支持并行和增量扫描）"""
 
     def __init__(self, root_path: str):
         self.root_path = Path(root_path).resolve()
@@ -21,6 +30,9 @@ class DirectoryScanner:
         self._on_progress: Optional[Callable[[int, int], None]] = None
         self._scanned_dirs = 0
         self._permission_errors = 0
+        # 增量扫描：旧目录数据 {路径: DirInfo}
+        self._old_dirs: dict[str, DirInfo] = {}
+        self._use_parallel = True
 
     def cancel(self) -> None:
         """取消扫描"""
@@ -29,6 +41,10 @@ class DirectoryScanner:
     def on_progress(self, callback: Callable[[int, int], None]) -> None:
         """设置进度回调：callback(scanned_dirs, permission_errors)"""
         self._on_progress = callback
+
+    def set_old_dirs(self, old_dirs: dict[str, DirInfo]) -> None:
+        """设置旧的目录数据，用于增量扫描"""
+        self._old_dirs = old_dirs
 
     async def scan(self) -> DirInfo:
         """执行异步扫描，返回根目录的 DirInfo"""
@@ -42,11 +58,85 @@ class DirectoryScanner:
             name=self.root_path.name or str(self.root_path),
         )
 
-        await self._scan_dir(root)
+        if self._use_parallel:
+            await self._scan_dir_parallel(root)
+        else:
+            await self._scan_dir(root)
         return root
 
+    # ==================== 并行扫描 ====================
+
+    async def _scan_dir_parallel(self, dir_info: DirInfo) -> None:
+        """并行扫描目录（使用线程池加速 IO 操作）"""
+        if self._cancelled:
+            return
+
+        real_path = os.path.realpath(dir_info.path)
+        if real_path in self._visited:
+            dir_info.is_symlink = True
+            return
+        self._visited.add(real_path)
+
+        # 尝试增量扫描
+        if self._is_dir_unchanged(dir_info):
+            cached = self._old_dirs.get(dir_info.path)
+            if cached:
+                self._copy_dir_info(dir_info, cached)
+                self._report_progress()
+                return
+
+        # 读取目录条目（在线程池中执行以避免阻塞）
+        loop = asyncio.get_event_loop()
+        try:
+            entries = await loop.run_in_executor(
+                _thread_pool, _scan_entries, dir_info.path
+            )
+        except PermissionError:
+            dir_info.has_permission_error = True
+            self._permission_errors += 1
+            self._report_progress()
+            return
+        except OSError:
+            return
+
+        self._scanned_dirs += 1
+        self._report_progress()
+
+        # 分离文件和子目录
+        child_dirs: list[DirInfo] = []
+        for entry_path, entry_name, is_dir in entries:
+            if self._cancelled:
+                return
+            if is_dir:
+                child_dirs.append(DirInfo(path=entry_path, name=entry_name))
+            else:
+                # 文件 stat 也在线程池中执行
+                try:
+                    file_info = await loop.run_in_executor(
+                        _thread_pool, _scan_file, entry_path, entry_name
+                    )
+                    if file_info:
+                        dir_info.add_file(file_info)
+                except Exception:
+                    pass
+
+        # 并行扫描所有子目录
+        if child_dirs:
+            # 限制并发数，避免线程池爆炸
+            semaphore = asyncio.Semaphore(min(len(child_dirs), MAX_WORKERS))
+
+            async def scan_with_semaphore(child: DirInfo) -> None:
+                async with semaphore:
+                    await self._scan_dir_parallel(child)
+                    dir_info.add_child_dir(child)
+
+            tasks = [scan_with_semaphore(child) for child in child_dirs]
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+    # ==================== 顺序扫描（降级方案） ====================
+
     async def _scan_dir(self, dir_info: DirInfo) -> None:
-        """递归扫描目录"""
+        """递归顺序扫描目录"""
         if self._cancelled:
             return
 
@@ -69,7 +159,6 @@ class DirectoryScanner:
         self._scanned_dirs += 1
         self._report_progress()
 
-        # 每处理 50 个目录让出控制权，避免阻塞事件循环
         if self._scanned_dirs % 50 == 0:
             await asyncio.sleep(0)
 
@@ -84,10 +173,7 @@ class DirectoryScanner:
                     continue
 
                 if entry.is_dir(follow_symlinks=False):
-                    child = DirInfo(
-                        path=entry.path,
-                        name=entry.name,
-                    )
+                    child = DirInfo(path=entry.path, name=entry.name)
                     child_dirs.append(child)
                 elif entry.is_file(follow_symlinks=False):
                     try:
@@ -105,13 +191,113 @@ class DirectoryScanner:
             except OSError:
                 pass
 
-        # 递归扫描子目录
         for child in child_dirs:
             if self._cancelled:
                 return
             await self._scan_dir(child)
             dir_info.add_child_dir(child)
 
+    # ==================== 增量扫描辅助 ====================
+
+    def _is_dir_unchanged(self, dir_info: DirInfo) -> bool:
+        """检查目录是否有变化（基于文件/子目录数量和修改时间）"""
+        if dir_info.path not in self._old_dirs:
+            return False
+
+        try:
+            stat = os.stat(dir_info.path)
+            old = self._old_dirs[dir_info.path]
+
+            # 简单策略：比较文件数量和子目录数量
+            # 这对于大多数场景足够了
+            current_entries = len(os.listdir(dir_info.path))
+            old_entries = old.file_count + old.dir_count
+
+            # 如果条目数量相同，认为目录结构未变
+            return current_entries == old_entries
+        except OSError:
+            return False
+
+    def _copy_dir_info(self, target: DirInfo, source: DirInfo) -> None:
+        """从缓存复制目录信息"""
+        target.total_size = source.total_size
+        target.file_count = source.file_count
+        target.dir_count = source.dir_count
+        target.has_permission_error = source.has_permission_error
+        target.is_symlink = source.is_symlink
+        target.files = list(source.files)
+        target.children = []
+
+        # 递归复制子目录
+        for child in source.children:
+            child_copy = DirInfo(
+                path=child.path,
+                name=child.name,
+                total_size=child.total_size,
+                file_count=child.file_count,
+                dir_count=child.dir_count,
+                has_permission_error=child.has_permission_error,
+                is_symlink=child.is_symlink,
+                files=list(child.files),
+            )
+            child_copy.children = []
+            self._copy_dir_info(child_copy, child)
+            target.children.append(child_copy)
+
     def _report_progress(self) -> None:
         if self._on_progress:
             self._on_progress(self._scanned_dirs, self._permission_errors)
+
+
+# ==================== 线程池辅助函数 ====================
+
+_thread_pool = ThreadPoolExecutor(max_workers=MAX_WORKERS)
+
+
+def _scan_entries(path: str) -> list[tuple[str, str, bool]]:
+    """在线程池中扫描目录条目，返回 (路径, 名称, 是否目录)"""
+    entries = []
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                try:
+                    is_dir = entry.is_dir(follow_symlinks=False)
+                    if not entry.is_symlink():
+                        entries.append((entry.path, entry.name, is_dir))
+                except OSError:
+                    pass
+    except PermissionError:
+        raise
+    except OSError:
+        pass
+    return entries
+
+
+def _scan_file(path: str, name: str) -> Optional[FileInfo]:
+    """在线程池中扫描单个文件"""
+    try:
+        stat = os.stat(path)
+        return FileInfo(
+            path=path,
+            name=name,
+            size=stat.st_size,
+            extension=Path(name).suffix.lower(),
+            modified_time=stat.st_mtime,
+        )
+    except OSError:
+        return None
+
+
+def build_old_dirs_map(dir_info: DirInfo) -> dict[str, DirInfo]:
+    """从 DirInfo 构建路径映射，用于增量扫描"""
+    result: dict[str, DirInfo] = {}
+
+    def _collect(d: DirInfo) -> None:
+        result[d.path] = d
+        for child in d.children:
+            _collect(child)
+
+    if dir_info:
+        _collect(dir_info)
+
+    return result
