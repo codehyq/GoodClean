@@ -46,3 +46,7 @@ htmlcov/
 # Temporary
 *.tmp
 *.temp
+
+# Internal docs (not for open source)
+AGENT.md
+MEMORY.md

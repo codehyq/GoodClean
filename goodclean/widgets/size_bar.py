@@ -32,6 +32,9 @@ class SizeBar(Widget):
         # 类型分布模式专用
         self._category_mode = False
         self._category_items: list[dict] = []
+        # 清理建议模式专用
+        self._suggestion_mode = False
+        self._suggestion_items: list = []
 
     def set_data(
         self,
@@ -42,6 +45,8 @@ class SizeBar(Widget):
         """设置要展示的目录数据"""
         self._category_mode = False
         self._category_items = []
+        self._suggestion_mode = False
+        self._suggestion_items = []
         self._title = title
         self._items = []
         for d in dirs[:max_items]:
@@ -61,6 +66,8 @@ class SizeBar(Widget):
         """设置要展示的文件数据"""
         self._category_mode = False
         self._category_items = []
+        self._suggestion_mode = False
+        self._suggestion_items = []
         self._title = title
         self._items = []
         for f in files[:max_items]:
@@ -91,6 +98,27 @@ class SizeBar(Widget):
             self._max_size = 0
         self.refresh()
 
+    def set_suggestion_data(
+        self,
+        suggestions: list,
+        title: str = "清理建议",
+    ) -> None:
+        """设置清理建议数据。
+
+        suggestions: list[CleanupSuggestion]
+        """
+        self._category_mode = False
+        self._category_items = []
+        self._suggestion_mode = True
+        self._suggestion_items = suggestions
+        self._title = title
+        self._items = []
+        if suggestions:
+            self._max_size = max(s.size for s in suggestions)
+        else:
+            self._max_size = 0
+        self.refresh()
+
     def set_highlight(self, path: str) -> None:
         """设置高亮路径"""
         self._highlight_path = path
@@ -101,12 +129,57 @@ class SizeBar(Widget):
         text.append(f"  {self._title}\n", style="bold underline")
         text.append("─" * 54 + "\n", style="dim")
 
-        if self._category_mode:
+        if self._suggestion_mode:
+            self._render_suggestions(text)
+        elif self._category_mode:
             self._render_categories(text)
         else:
             self._render_items(text)
 
         return text
+
+    def _render_suggestions(self, text: Text) -> None:
+        """渲染清理建议视图"""
+        if not self._suggestion_items:
+            text.append("  暂无清理建议\n", style="dim")
+            return
+
+        from ..analyzer import format_size as _fmt
+
+        # 汇总
+        total_size = sum(s.size for s in self._suggestion_items)
+        safe_size = sum(s.size for s in self._suggestion_items if s.risk == "safe")
+        caution_size = total_size - safe_size
+        safe_count = sum(1 for s in self._suggestion_items if s.risk == "safe")
+        caution_count = len(self._suggestion_items) - safe_count
+
+        text.append(
+            f"  safe: {safe_count}项 {_fmt(safe_size)}  |  "
+            f"caution: {caution_count}项 {_fmt(caution_size)}\n",
+            style="dim",
+        )
+        text.append("─" * 54 + "\n", style="dim")
+
+        bar_width = 20
+        for s in self._suggestion_items:
+            risk_mark = "[safe]  " if s.risk == "safe" else "[care] "
+            risk_style = "bold green" if s.risk == "safe" else "bold yellow"
+            name_style = "" if s.risk == "safe" else "dim"
+
+            # 条形长度
+            bar_len = int((s.size / self._max_size) * bar_width) if self._max_size > 0 else 0
+            if s.size == 0:
+                bar_len = 1 if s.risk == "safe" else 0
+            bar = "█" * bar_len + "░" * (bar_width - bar_len)
+
+            size_str = _fmt(s.size).rjust(8) if s.size > 0 else "     0 B"
+            reason = s.reason[:24]  # 截断过长原因
+
+            text.append(f" {risk_mark}", style=risk_style)
+            text.append(f" {s.name[:18]:18s} ", style=name_style)
+            text.append(f"{bar} ", style="green" if s.risk == "safe" else "yellow")
+            text.append(f"{size_str} ", style="bold")
+            text.append(f"{reason}\n", style="dim")
 
     def _render_categories(self, text: Text) -> None:
         """渲染文件类型分类视图"""

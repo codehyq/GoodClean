@@ -18,6 +18,7 @@ from .analyzer import analyze, format_size
 from .cache import clear_cache, get_cache_info, list_all_caches, load_cache, save_cache
 from .cleaner import CleanResult, permanent_delete, trash_files
 from .constants import ScanStatus
+from .suggestion import CleanupSuggestion, generate_cleanup_suggestions, get_suggestion_summary
 from .duplicate_finder import find_duplicates, get_duplicate_stats
 from .exporter import export_report
 from .models import DirInfo, ScanResult
@@ -224,6 +225,8 @@ class GoodCleanApp(App):
         Binding("t", "show_types", "类型", show=True),
         Binding("e", "export_report", "导出", show=True),
         Binding("f", "find_duplicates", "查重", show=True),
+        Binding("c", "show_suggestions", "建议", show=True),
+        Binding("x", "safe_cleanup", "一键清理", show=True),
     ]
 
     def check_action(self, action: str, payload=None) -> bool:
@@ -248,6 +251,8 @@ class GoodCleanApp(App):
         self._filter_type = ""
         self._filter_size = ""
         self._showing_duplicates = False
+        self._showing_suggestions = False
+        self._current_suggestions: list[CleanupSuggestion] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -744,6 +749,95 @@ class GoodCleanApp(App):
             if self._scan_result:
                 size_bar.set_data(self._scan_result.top_dirs, "Top 20")
 
+    def action_show_suggestions(self) -> None:
+        if not self._root_dir:
+            self.notify("请先等待扫描完成", severity="warning")
+            return
+        self._showing_suggestions = not self._showing_suggestions
+        size_bar = self.query_one("#size-bar", SizeBar)
+        if self._showing_suggestions:
+            suggestions = generate_cleanup_suggestions(self._scan_result)
+            self._current_suggestions = suggestions
+            summary = get_suggestion_summary(suggestions)
+            self.notify(
+                f"清理建议: {summary['safe_count']} 项安全 "
+                f"({format_size(summary['safe_size'])}) | "
+                f"{summary['caution_count']} 项谨慎 "
+                f"({format_size(summary['caution_size'])})",
+                timeout=4,
+            )
+            size_bar.set_suggestion_data(
+                suggestions,
+                f"清理建议 (安全: {summary['safe_count']} 谨慎: {summary['caution_count']})",
+            )
+        else:
+            self._current_suggestions = []
+            if self._scan_result:
+                size_bar.set_data(self._scan_result.top_dirs, "Top 20")
+
+    def action_safe_cleanup(self) -> None:
+        """一键安全清理：只清理 safe 级别的建议项"""
+        if not self._scan_result:
+            self.notify("请先等待扫描完成", severity="warning")
+            return
+
+        # 生成建议
+        suggestions = generate_cleanup_suggestions(self._scan_result)
+        safe_suggestions = [s for s in suggestions if s.risk == "safe"]
+
+        if not safe_suggestions:
+            self.notify("没有可安全清理的项目", severity="info")
+            return
+
+        # 收集所有 safe 建议的路径
+        all_paths: list[str] = []
+        total_size = 0
+        for s in safe_suggestions:
+            if s.is_dir:
+                all_paths.append(s.path)
+                total_size += s.size
+            else:
+                all_paths.extend(s.paths)
+                total_size += s.size
+
+        # 去重
+        all_paths = list(dict.fromkeys(all_paths))
+
+        self.push_screen(
+            ConfirmDialog(
+                f"一键安全清理 {len(safe_suggestions)} 个项目？",
+                count=len(all_paths), total_size=total_size, is_permanent=False,
+            ),
+            self._on_safe_cleanup_confirm,
+        )
+
+    def _on_safe_cleanup_confirm(self, confirmed: bool | None) -> None:
+        if not confirmed:
+            return
+        suggestions = generate_cleanup_suggestions(self._scan_result)
+        safe_suggestions = [s for s in suggestions if s.risk == "safe"]
+
+        all_paths: list[str] = []
+        for s in safe_suggestions:
+            if s.is_dir:
+                all_paths.append(s.path)
+            else:
+                all_paths.extend(s.paths)
+        all_paths = list(dict.fromkeys(all_paths))
+
+        if not all_paths:
+            return
+
+        self.query_one("#scan-progress", Static).update(
+            f"  一键安全清理中... ({len(all_paths)} 个项目)"
+        )
+        self._do_safe_cleanup(all_paths)
+
+    @work(exclusive=True, thread=True)
+    def _do_safe_cleanup(self, paths: list[str]) -> None:
+        result = trash_files(paths)
+        self.app.call_from_thread(self._show_clean_result, result, "安全清理")
+
     def action_show_help(self) -> None:
         self.notify(
             "GoodClean 快捷键帮助\n"
@@ -758,6 +852,8 @@ class GoodCleanApp(App):
             "t        类型分布\n"
             "e        导出报告\n"
             "f        查重复\n"
+            "c        清理建议\n"
+            "x        一键安全清理\n"
             "r        重新扫描\n"
             "Esc      清除搜索\n"
             "q        退出",
@@ -799,6 +895,7 @@ class GoodCleanApp(App):
 
     def _make_help_text(self) -> str:
         return (
-            "  [[/]] 搜索  [[Enter]] 展开  [[Space]] 选中  [[d]] 回收站  [[D]] 永久删除  "
-            "[[s]] 排序  [[t]] 类型  [[e]] 导出  [[f]] 查重  [[r]] 重扫  [[?]] 帮助  [[q]] 退出"
+            "  [[/]] 搜索  [[Space]] 选中  [[d]] 回收站  [[D]] 永久删除  "
+            "[[s]] 排序  [[t]] 类型  [[e]] 导出  [[f]] 查重  "
+            "[[c]] 建议  [[x]] 一键清理  [[r]] 重扫  [[?]] 帮助  [[q]] 退出"
         )
