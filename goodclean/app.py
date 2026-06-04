@@ -34,11 +34,6 @@ class GoodCleanApp(App):
     SUB_TITLE = "终端磁盘清理工具"
 
     CSS = """
-    #top-bar {
-        dock: top;
-        height: auto;
-    }
-
     #scan-progress {
         height: 3;
         padding: 0 1;
@@ -46,6 +41,7 @@ class GoodCleanApp(App):
 
     SearchBar {
         height: 3;
+        dock: top;
     }
 
     SearchBar > Horizontal {
@@ -138,9 +134,8 @@ class GoodCleanApp(App):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Vertical(id="top-bar"):
-            yield Static("", id="scan-progress")
-            yield SearchBar(id="search-bar")
+        yield Static("", id="scan-progress")
+        yield SearchBar(id="search-bar")
 
         with Horizontal(id="main-container"):
             with Vertical(id="left-panel"):
