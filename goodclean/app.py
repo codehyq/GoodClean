@@ -16,11 +16,14 @@ from textual.widgets import Footer, Header, Label, ProgressBar, Static
 from .analyzer import analyze, format_size, get_file_type_distribution
 from .cleaner import CleanResult, permanent_delete, trash_files
 from .constants import ScanStatus
+from .duplicate_finder import find_duplicates, get_duplicate_stats
+from .exporter import export_report
 from .models import DirInfo, ScanResult
 from .scanner import DirectoryScanner
 from .widgets.confirm_dialog import ConfirmDialog
 from .widgets.directory_tree import DirectoryTree
 from .widgets.file_info import FileInfoPanel
+from .widgets.search_bar import SearchBar, matches_search_filter
 from .widgets.size_bar import SizeBar
 
 
@@ -31,6 +34,51 @@ class GoodCleanApp(App):
     SUB_TITLE = "终端磁盘清理工具"
 
     CSS = """
+    #top-bar {
+        dock: top;
+        height: auto;
+    }
+
+    #scan-progress {
+        height: 3;
+        padding: 0 1;
+    }
+
+    SearchBar {
+        height: 3;
+    }
+
+    SearchBar > Horizontal {
+        height: 3;
+    }
+
+    #search-icon {
+        width: 3;
+        height: 3;
+    }
+
+    #search-input {
+        width: 2fr;
+        height: 3;
+    }
+
+    #filter-type {
+        width: 1fr;
+        max-width: 20;
+        height: 3;
+    }
+
+    #filter-size {
+        width: 1fr;
+        max-width: 18;
+        height: 3;
+    }
+
+    #search-info {
+        width: 15;
+        height: 3;
+    }
+
     #main-container {
         height: 1fr;
     }
@@ -44,19 +92,6 @@ class GoodCleanApp(App):
     #right-panel {
         width: 1fr;
         min-width: 40;
-    }
-
-    #status-bar {
-        height: 3;
-        dock: bottom;
-        padding: 0 1;
-        background: $surface;
-        border-top: solid $primary;
-    }
-
-    #scan-progress {
-        height: 3;
-        padding: 0 1;
     }
 
     DirectoryTree {
@@ -73,12 +108,15 @@ class GoodCleanApp(App):
     BINDINGS = [
         Binding("q", "quit", "退出"),
         Binding("question_mark", "show_help", "帮助", show=True, key_display="?"),
+        Binding("slash", "focus_search", "搜索", show=True),
         Binding("d", "trash_selected", "移到回收站", show=True),
         Binding("D", "permanent_delete_selected", "永久删除", show=True),
         Binding("s", "toggle_sort", "切换排序", show=True),
         Binding("r", "rescan", "重新扫描", show=True),
         Binding("t", "show_types", "类型分布", show=True),
-        Binding("escape", "clear_selection", "取消选择", show=True),
+        Binding("e", "export_report", "导出报告", show=True),
+        Binding("f", "find_duplicates", "查重", show=True),
+        Binding("escape", "clear_search", "清除搜索", show=True),
     ]
 
     scan_status: reactive[str] = reactive(ScanStatus.IDLE)
@@ -93,10 +131,16 @@ class GoodCleanApp(App):
         self._selected_paths: set[str] = set()
         self._sort_by_size = True
         self._showing_types = False
+        self._search_query = ""
+        self._filter_type = ""
+        self._filter_size = ""
+        self._showing_duplicates = False
 
     def compose(self) -> ComposeResult:
         yield Header()
-        yield Static("", id="scan-progress")
+        with Vertical(id="top-bar"):
+            yield Static("", id="scan-progress")
+            yield SearchBar(id="search-bar")
 
         with Horizontal(id="main-container"):
             with Vertical(id="left-panel"):
@@ -110,6 +154,9 @@ class GoodCleanApp(App):
 
     def on_mount(self) -> None:
         """应用启动后开始扫描"""
+        # 设置搜索回调
+        search_bar = self.query_one("#search-bar", SearchBar)
+        search_bar.set_on_search_change(self._on_search_change)
         self._start_scan()
 
     def _start_scan(self) -> None:
@@ -190,6 +237,19 @@ class GoodCleanApp(App):
         progress = self.query_one("#scan-progress", Static)
         progress.update(f"  ❌ 扫描失败: {error}")
 
+    def _update_progress_done(self) -> None:
+        """恢复进度栏为完成状态"""
+        if self._scan_result:
+            result = self._scan_result
+            duration_str = f"{result.scan_duration:.1f}s"
+            size_str = format_size(result.total_size)
+            progress = self.query_one("#scan-progress", Static)
+            progress.update(
+                f"  ✅ 扫描完成 | {size_str} | "
+                f"{result.total_files} 个文件 | {result.total_dirs} 个目录 | "
+                f"耗时 {duration_str}"
+            )
+
     def on_directory_tree_selected_path_changed(self, event) -> None:
         """目录树选中路径变化"""
         path = event.value
@@ -213,6 +273,58 @@ class GoodCleanApp(App):
             if result:
                 return result
         return None
+
+    def _on_search_change(self, query: str, filter_type: str, filter_size: str) -> None:
+        """搜索条件变化回调"""
+        self._search_query = query
+        self._filter_type = filter_type
+        self._filter_size = filter_size
+        self._update_filtered_view()
+
+    def _update_filtered_view(self) -> None:
+        """更新过滤后的视图"""
+        if not self._scan_result or not self._root_dir:
+            return
+
+        # 如果没有过滤条件，显示原始数据
+        if not self._search_query and not self._filter_type and not self._filter_size:
+            size_bar = self.query_one("#size-bar", SizeBar)
+            size_bar.set_data(self._scan_result.top_dirs, "目录大小排行 Top 20")
+            search_bar = self.query_one("#search-bar", SearchBar)
+            search_bar.update_result_count(0, 0)
+            return
+
+        # 收集所有匹配的文件
+        matched_files = []
+        self._collect_filtered_files(self._root_dir, matched_files)
+
+        # 更新大小排行显示匹配的文件
+        size_bar = self.query_one("#size-bar", SizeBar)
+        if matched_files:
+            # 按大小排序
+            matched_files.sort(key=lambda f: f.size, reverse=True)
+            size_bar.set_file_data(matched_files[:20], f"搜索结果 Top 20")
+
+        # 更新搜索结果数量
+        search_bar = self.query_one("#search-bar", SearchBar)
+        total_files = self._scan_result.total_files
+        search_bar.update_result_count(len(matched_files), total_files)
+
+    def _collect_filtered_files(self, dir_info: DirInfo, result: list) -> None:
+        """递归收集匹配过滤条件的文件"""
+        for f in dir_info.files:
+            if matches_search_filter(
+                f.name,
+                f.path,
+                f.size,
+                f.extension,
+                self._search_query,
+                self._filter_type,
+                self._filter_size,
+            ):
+                result.append(f)
+        for child in dir_info.children:
+            self._collect_filtered_files(child, result)
 
     def action_trash_selected(self) -> None:
         """将选中项移到回收站"""
@@ -244,8 +356,16 @@ class GoodCleanApp(App):
         if not paths:
             return
 
+        # 显示进度
+        progress = self.query_one("#scan-progress", Static)
+        progress.update(f"  ⏳ 正在将 {len(paths)} 个项目移到回收站...")
+        self._do_trash(paths)
+
+    @work(exclusive=True, thread=True)
+    def _do_trash(self, paths: list[str]) -> None:
+        """在后台线程中执行回收站操作"""
         result = trash_files(paths)
-        self._show_clean_result(result, "回收站")
+        self.app.call_from_thread(self._show_clean_result, result, "回收站")
 
     def action_permanent_delete_selected(self) -> None:
         """永久删除选中项"""
@@ -277,8 +397,16 @@ class GoodCleanApp(App):
         if not paths:
             return
 
+        # 显示进度
+        progress = self.query_one("#scan-progress", Static)
+        progress.update(f"  ⏳ 正在永久删除 {len(paths)} 个项目...")
+        self._do_permanent_delete(paths)
+
+    @work(exclusive=True, thread=True)
+    def _do_permanent_delete(self, paths: list[str]) -> None:
+        """在后台线程中执行永久删除"""
         result = permanent_delete(paths)
-        self._show_clean_result(result, "永久删除")
+        self.app.call_from_thread(self._show_clean_result, result, "永久删除")
 
     def _show_clean_result(self, result: CleanResult, mode: str) -> None:
         """显示清理结果"""
@@ -289,8 +417,16 @@ class GoodCleanApp(App):
             msg = f"✅ {result.success_count} 个已{mode}，释放 {freed}"
         self.notify(msg)
 
+        # 恢复进度栏
+        self._update_progress_done()
+
         # 清除选中并刷新
         self._selected_paths.clear()
+        try:
+            tree = self.query_one("#dir-tree", DirectoryTree)
+            tree.selected_paths = set()
+        except Exception:
+            pass
         if result.success_count > 0:
             self._start_scan()
 
@@ -345,11 +481,72 @@ class GoodCleanApp(App):
             if self._scan_result:
                 size_bar.set_data(self._scan_result.top_dirs, "目录大小排行 Top 20")
 
+    def action_focus_search(self) -> None:
+        """聚焦搜索框"""
+        search_bar = self.query_one("#search-bar", SearchBar)
+        input_widget = search_bar.query_one("#search-input")
+        input_widget.focus()
+
+    def action_clear_search(self) -> None:
+        """清除搜索条件"""
+        search_bar = self.query_one("#search-bar", SearchBar)
+        search_bar.clear_filters()
+        self._search_query = ""
+        self._filter_type = ""
+        self._filter_size = ""
+        self._update_filtered_view()
+
     def action_clear_selection(self) -> None:
         """清除选中"""
         self._selected_paths.clear()
         tree = self.query_one("#dir-tree", DirectoryTree)
         tree.selected_paths = set()
+
+    def action_find_duplicates(self) -> None:
+        """查找重复文件"""
+        if not self._root_dir:
+            self.notify("请先等待扫描完成", severity="warning")
+            return
+
+        self._showing_duplicates = not self._showing_duplicates
+        size_bar = self.query_one("#size-bar", SizeBar)
+
+        if self._showing_duplicates:
+            # 查找重复文件
+            self.notify("正在查找重复文件...")
+            duplicates = find_duplicates(self._root_dir)
+            stats = get_duplicate_stats(duplicates)
+
+            if not duplicates:
+                self.notify("未发现重复文件")
+                self._showing_duplicates = False
+                return
+
+            # 显示重复文件统计
+            savings = format_size(stats["total_size"])
+            self.notify(
+                f"发现 {stats['total_groups']} 组重复文件，"
+                f"共 {stats['total_files']} 个文件，"
+                f"可节省 {savings}"
+            )
+
+            # 将重复文件转换为 DirInfo 格式显示
+            from .models import DirInfo as DI
+            dup_dirs = []
+            for i, group in enumerate(duplicates[:20], 1):
+                # 每组只显示可节省的空间（排除第一个文件）
+                savings_size = sum(f.size for f in group[1:])
+                dup_dirs.append(DI(
+                    path=f"duplicate_group_{i}",
+                    name=f"重复组 {i} ({len(group)} 个文件)",
+                    total_size=savings_size,
+                    file_count=len(group),
+                ))
+            size_bar.set_data(dup_dirs, f"重复文件 Top 20 (可节省 {savings})")
+        else:
+            # 恢复原始视图
+            if self._scan_result:
+                size_bar.set_data(self._scan_result.top_dirs, "目录大小排行 Top 20")
 
     def action_show_help(self) -> None:
         """显示帮助"""
@@ -359,11 +556,15 @@ class GoodCleanApp(App):
             "↑↓       导航目录树\n"
             "Enter    展开/折叠目录\n"
             "Space    选中/取消选中\n"
+            "//       搜索文件\n"
             "d        移到回收站\n"
             "D        永久删除\n"
             "s        切换排序方式\n"
             "t        文件类型分布\n"
+            "e        导出报告\n"
+            "f        查找重复文件\n"
             "r        重新扫描\n"
+            "Esc      清除搜索\n"
             "q        退出\n"
             "?        显示此帮助"
         )
@@ -372,7 +573,9 @@ class GoodCleanApp(App):
     def _get_selected_paths(self) -> list[str]:
         """获取选中的路径列表"""
         tree = self.query_one("#dir-tree", DirectoryTree)
-        return list(tree.selected_paths)
+        paths = list(tree.selected_paths)
+        self.notify(f"当前选中: {len(paths)} 个项目", timeout=2)
+        return paths
 
     def _get_path_size(self, path: str) -> int:
         """获取路径大小"""
@@ -382,9 +585,39 @@ class GoodCleanApp(App):
                 return dir_info.total_size
         return 0
 
+    def action_export_report(self) -> None:
+        """导出扫描报告"""
+        if not self._scan_result:
+            self.notify("请先等待扫描完成", severity="warning")
+            return
+
+        # 显示进度
+        progress = self.query_one("#scan-progress", Static)
+        progress.update("  ⏳ 正在导出报告...")
+        self._do_export()
+
+    @work(exclusive=True, thread=True)
+    def _do_export(self) -> None:
+        """在后台线程中执行导出"""
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_name = f"goodclean_report_{timestamp}.html"
+
+        try:
+            output_path = export_report(self._scan_result, default_name)
+            self.app.call_from_thread(
+                self.notify, f"报告已导出: {output_path}", {"timeout": 5}
+            )
+        except Exception as e:
+            self.app.call_from_thread(
+                self.notify, f"导出失败: {e}", {"severity": "error"}
+            )
+        finally:
+            self.app.call_from_thread(self._update_progress_done)
+
     def _make_help_text(self) -> str:
-        """生成底部帮助文本"""
+        """生成底部帮助文本（转义所有方括号避免 Rich markup 解析）"""
         return (
-            "  [Enter] 展开  [Space] 选中  [d] 回收站  [D] 永久删除  "
-            "[s] 排序  [t] 类型  [r] 重扫  [?] 帮助  [q] 退出"
+            "  [[/]] 搜索  [[Enter]] 展开  [[Space]] 选中  [[d]] 回收站  [[D]] 永久删除  "
+            "[[s]] 排序  [[t]] 类型  [[e]] 导出  [[f]] 查重  [[r]] 重扫  [[?]] 帮助  [[q]] 退出"
         )

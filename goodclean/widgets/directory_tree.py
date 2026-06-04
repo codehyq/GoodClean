@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Optional
 
 from rich.text import Text
+from textual.binding import Binding
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Tree
@@ -13,6 +13,25 @@ from textual.widgets.tree import TreeNode
 
 from ..analyzer import format_size
 from ..models import DirInfo
+
+
+class SelectableTree(Tree):
+    """可选中的 Tree 子类，拦截 Space 键改为选中/取消选中"""
+
+    def __init__(self, *args, on_space=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._on_space = on_space
+
+    def _on_key(self, event) -> None:
+        """拦截 Space 键，改为选中操作"""
+        if event.key == "space":
+            event.prevent_default()
+            event.stop()
+            if self._on_space:
+                self._on_space()
+            return
+        # 其他键交给父类处理
+        super()._on_key(event)
 
 
 class DirectoryTree(Widget):
@@ -24,15 +43,19 @@ class DirectoryTree(Widget):
     ]
 
     selected_path: reactive[str] = reactive("")
-    selected_paths: reactive[set[str]] = reactive(set)
+    selected_paths: reactive[set[str]] = reactive(set, init=False)
 
     def __init__(self, root_dir: Optional[DirInfo] = None, **kwargs):
         super().__init__(**kwargs)
         self._root_dir = root_dir
-        self._tree: Optional[Tree] = None
+        self._tree: Optional[SelectableTree] = None
+        self.selected_paths = set()
 
     def compose(self):
-        self._tree = Tree("扫描中...")
+        self._tree = SelectableTree(
+            "扫描中...",
+            on_space=self._do_toggle_select,
+        )
         self._tree.show_root = True
         self._tree.guide_depth = 2
         yield self._tree
@@ -52,17 +75,14 @@ class DirectoryTree(Widget):
 
     def _populate_tree(self, parent_node: TreeNode, dir_info: DirInfo) -> None:
         """递归填充树节点"""
-        # 按大小排序子目录
         sorted_children = sorted(
             dir_info.children, key=lambda d: d.total_size, reverse=True
         )
 
         for child in sorted_children:
             label = self._make_label(child)
-            icon = self._get_dir_icon(child)
             child_node = parent_node.add(label, data=child.path)
 
-            # 如果有子目录或文件，添加占位节点（懒加载）
             if child.children or child.files:
                 child_node.add("加载中...", data=None)
 
@@ -77,7 +97,8 @@ class DirectoryTree(Widget):
             text.append(f"🔗 {name}", style="dim cyan")
         else:
             icon = self._get_dir_icon(dir_info)
-            text.append(f"{icon} {name}", style="bold")
+            check = "☑" if dir_info.path in self.selected_paths else "☐"
+            text.append(f"{check} {icon} {name}", style="bold")
 
         text.append(f"  ({format_size(dir_info.total_size)})", style="dim green")
 
@@ -108,7 +129,6 @@ class DirectoryTree(Widget):
         if node.data is None:
             return
 
-        # 检查是否是占位节点
         if len(node.children) == 1 and node.children[0].data is None:
             node.remove_children()
             dir_info = self._find_dir(self._root_dir, node.data)
@@ -135,15 +155,28 @@ class DirectoryTree(Widget):
     def action_toggle_node(self) -> None:
         """切换节点展开/折叠"""
         if self._tree:
-            self._tree.action_toggle()
+            self._tree.action_toggle_node()
 
     def action_toggle_select(self) -> None:
-        """切换当前节点的选中状态"""
-        if self._tree and self._tree.cursor_node and self._tree.cursor_node.data:
-            path = self._tree.cursor_node.data
+        """切换当前节点的选中状态（通过 BINDINGS）"""
+        self._do_toggle_select()
+
+    def _do_toggle_select(self) -> None:
+        """实际的选中切换逻辑"""
+        if not self._tree:
+            return
+
+        cursor_node = self._tree.cursor_node
+        if cursor_node and cursor_node.data:
+            path = cursor_node.data
             current = set(self.selected_paths)
             if path in current:
                 current.discard(path)
+                action = "取消选中"
             else:
                 current.add(path)
+                action = "已选中"
             self.selected_paths = current
+            self.notify(f"{action} | 当前共选中 {len(self.selected_paths)} 个项目", timeout=2)
+            if self._tree:
+                self._tree.refresh()
