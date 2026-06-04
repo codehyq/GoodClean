@@ -65,3 +65,11 @@ class ScanStatus:
     DONE = "done"
     CANCELLED = "cancelled"
     ERROR = "error"
+
+
+# 扫描模式
+SCAN_MODE_STANDARD = "standard"   # 标准模式（使用缓存）
+SCAN_MODE_FORCE = "force"         # 强制刷新（跳过缓存）
+
+# 缓存有效期（小时）
+CACHE_MAX_AGE_HOURS = 24

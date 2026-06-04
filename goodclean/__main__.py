@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import argparse
-import asyncio
 import os
 import sys
-import time
 
 
 def main() -> None:
@@ -18,7 +16,7 @@ def main() -> None:
         "path",
         nargs="?",
         default=None,
-        help="要扫描的目录路径（默认为当前目录）",
+        help="要扫描的目录路径（可选，不指定则显示交互式菜单）",
     )
     parser.add_argument(
         "-v", "--version",
@@ -31,69 +29,62 @@ def main() -> None:
         help="导出扫描报告到文件（支持 .html/.json/.csv）",
     )
     parser.add_argument(
-        "--no-tui",
+        "--no-cache",
         action="store_true",
-        help="不启动 TUI 界面，仅导出报告",
+        help="不使用缓存，强制实时扫描",
+    )
+    parser.add_argument(
+        "--cache-info",
+        action="store_true",
+        help="显示缓存信息后退出",
     )
 
     args = parser.parse_args()
 
-    # 确定扫描路径
-    scan_path = args.path or os.getcwd()
-
-    # 验证路径
-    if not os.path.isdir(scan_path):
-        print(f"错误: '{scan_path}' 不是有效的目录", file=sys.stderr)
-        sys.exit(1)
-
-    # 如果指定了导出参数且不需要 TUI
-    if args.export and args.no_tui:
-        _export_only(scan_path, args.export)
+    # 查看缓存信息模式
+    if args.cache_info:
+        _show_cache_info()
         return
+
+    # 验证指定的路径
+    if args.path and not os.path.isdir(args.path):
+        print(f"错误: '{args.path}' 不是有效的目录", file=sys.stderr)
+        sys.exit(1)
 
     # 启动应用
     from .app import GoodCleanApp
 
-    app = GoodCleanApp(scan_path=scan_path)
+    app = GoodCleanApp(
+        scan_path=args.path,          # None -> 显示欢迎屏幕
+        use_cache=not args.no_cache,
+        export_path=args.export,
+    )
     app.run()
 
 
-def _export_only(scan_path: str, output_path: str) -> None:
-    """仅导出报告，不启动 TUI"""
-    from .analyzer import analyze, format_size
-    from .exporter import export_report
-    from .scanner import DirectoryScanner
+def _show_cache_info() -> None:
+    """显示缓存信息"""
+    from .cache import list_all_caches
+    from .analyzer import format_size
 
-    print(f"正在扫描: {scan_path}")
-    start_time = time.time()
+    caches = list_all_caches()
+    if not caches:
+        print("当前无缓存")
+        return
 
-    scanner = DirectoryScanner(scan_path)
-
-    def on_progress(dirs: int, errors: int) -> None:
-        print(f"\r已扫描 {dirs} 个目录...", end="", flush=True)
-
-    scanner.on_progress(on_progress)
-
-    loop = asyncio.new_event_loop()
-    try:
-        root_dir = loop.run_until_complete(scanner.scan())
-        duration = time.time() - start_time
-        print(f"\n扫描完成，耗时 {duration:.2f}秒")
-
-        # 分析结果
-        result = analyze(root_dir, scan_path)
-        result.scan_duration = duration
-
-        print(f"总大小: {format_size(result.total_size)}")
-        print(f"文件数: {result.total_files}")
-        print(f"目录数: {result.total_dirs}")
-
-        # 导出报告
-        output = export_report(result, output_path)
-        print(f"报告已导出: {output}")
-
-    finally:
-        loop.close()
+    print(f"缓存条目: {len(caches)}")
+    print("─" * 50)
+    for info in caches:
+        size_str = format_size(info["total_size"])
+        status = "已过期" if info["expired"] else "有效"
+        print(
+            f"  {info['path']}\n"
+            f"    扫描于 {info['age_hours']}h 前  "
+            f"大小 {size_str}  "
+            f"文件 {info['total_files']}  "
+            f"目录 {info['total_dirs']}  "
+            f"({status})"
+        )
 
 
 if __name__ == "__main__":

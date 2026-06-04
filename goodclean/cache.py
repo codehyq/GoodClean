@@ -140,6 +140,32 @@ def clear_cache(root_path: Optional[str] = None) -> int:
         return count
 
 
+def list_all_caches() -> list[dict]:
+    """列出所有缓存的摘要信息"""
+    if not CACHE_DIR.exists():
+        return []
+
+    caches = []
+    for cache_file in CACHE_DIR.glob("*.json"):
+        try:
+            with open(cache_file, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            scan_time = data.get("scan_time", 0)
+            age_hours = round((time.time() - scan_time) / 3600, 1)
+            caches.append({
+                "path": data.get("root_path", "未知"),
+                "scan_time": scan_time,
+                "age_hours": age_hours,
+                "total_size": data.get("total_size", 0),
+                "total_files": data.get("total_files", 0),
+                "total_dirs": data.get("total_dirs", 0),
+                "expired": age_hours > 24,
+            })
+        except Exception:
+            continue
+    return caches
+
+
 def get_cache_info(root_path: str) -> Optional[dict]:
     """获取缓存信息（不加载完整数据）"""
     try:
