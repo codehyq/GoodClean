@@ -15,7 +15,7 @@ from textual.reactive import reactive
 from textual.widgets import Button, Footer, Header, Input, RadioSet, Static, Switch
 
 from .analyzer import analyze, format_size, get_file_type_distribution
-from .cache import clear_cache, list_all_caches, load_cache, save_cache
+from .cache import clear_cache, get_cache_info, list_all_caches, load_cache, save_cache
 from .cleaner import CleanResult, permanent_delete, trash_files
 from .constants import ScanStatus
 from .duplicate_finder import find_duplicates, get_duplicate_stats
@@ -42,6 +42,7 @@ def _get_presets() -> list[tuple[str, str]]:
         (f"用户目录 ({home})", str(home)),
         (f"桌面 ({home / 'Desktop'})", str(home / "Desktop")),
     ])
+    presets.append(("自定义路径...", ""))
     return presets
 
 
@@ -105,6 +106,16 @@ class GoodCleanApp(App):
         width: auto;
     }
 
+    #custom-path-input {
+        width: 100%;
+        height: 3;
+        display: none;
+    }
+
+    #custom-path-input.show {
+        display: block;
+    }
+
     .cache-line {
         width: 100%;
         height: auto;
@@ -138,6 +149,12 @@ class GoodCleanApp(App):
     #scan-progress {
         height: 3;
         padding: 0 1;
+    }
+
+    #cache-status {
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
     }
 
     SearchBar {
@@ -248,6 +265,10 @@ class GoodCleanApp(App):
                     ],
                     id="path-radio",
                 )
+                yield Input(
+                    placeholder="输入目录路径，如 D:\\MyFolder",
+                    id="custom-path-input",
+                )
 
                 yield Static("── 扫描模式 ──", classes="section-label")
                 with Horizontal(id="mode-switch-container"):
@@ -268,6 +289,7 @@ class GoodCleanApp(App):
         with Vertical(id="main-view"):
             with Vertical(id="top-bar"):
                 yield Static("", id="scan-progress")
+                yield Static("", id="cache-status")
                 yield SearchBar(id="search-bar")
             with Horizontal(id="main-container"):
                 with Vertical(id="left-panel"):
@@ -318,10 +340,36 @@ class GoodCleanApp(App):
         if idx is None or idx < 0:
             self.notify("请先选择一个扫描路径", severity="warning")
             return
+
         _, path = self._welcome_presets[idx]
+
+        # 自定义路径：从输入框读取
+        if not path:
+            custom = self.query_one("#custom-path-input", Input).value.strip()
+            if not custom:
+                self.notify("请输入扫描路径", severity="warning")
+                return
+            if not os.path.isdir(custom):
+                self.notify(f"路径不存在: {custom}", severity="warning")
+                return
+            path = custom
+
         self._scan_path = path
         self._use_cache = self.query_one("#cache-switch", Switch).value
         self._switch_to_main()
+
+    @on(RadioSet.Changed, "#path-radio")
+    def _on_path_radio_changed(self, event: RadioSet.Changed) -> None:
+        """路径选择变化：选中自定义时显示输入框"""
+        inp = self.query_one("#custom-path-input", Input)
+        idx = event.radio_set.pressed_index
+        # 最后一个选项是"自定义路径..."
+        is_custom = idx == len(self._welcome_presets) - 1
+        if is_custom:
+            inp.add_class("show")
+            inp.focus()
+        else:
+            inp.remove_class("show")
 
     @on(Switch.Changed, "#cache-switch")
     def _on_cache_switch_changed(self, event: Switch.Changed) -> None:
@@ -438,6 +486,7 @@ class GoodCleanApp(App):
             f"{result.total_files} files | {result.total_dirs} dirs | "
             f"{result.scan_duration:.1f}s{cache_hint}"
         )
+        self._update_cache_status()
 
         self.query_one("#dir-tree", DirectoryTree).load_dir(result.root_dir)
         self.query_one("#size-bar", SizeBar).set_data(result.top_dirs, "Top 20")
@@ -453,6 +502,36 @@ class GoodCleanApp(App):
                 f"  Done | {format_size(r.total_size)} | "
                 f"{r.total_files} files | {r.total_dirs} dirs | {r.scan_duration:.1f}s"
             )
+            self._update_cache_status()
+
+    def _update_cache_status(self) -> None:
+        """更新缓存状态显示"""
+        try:
+            info = get_cache_info(self._scan_path)
+            status = self.query_one("#cache-status", Static)
+            if not self._use_cache:
+                status.update("  Cache: off (force refresh)")
+                return
+            if info is None:
+                status.update("  Cache: none (first scan)")
+            elif info["expired"]:
+                status.update(
+                    f"  Cache: expired ({info['age_hours']}h old, "
+                    f"valid 24h)"
+                )
+            else:
+                age = info["age_hours"]
+                if age < 1:
+                    age_str = f"{int(age * 60)}min"
+                else:
+                    age_str = f"{age}h"
+                size = format_size(info["file_size"])
+                status.update(
+                    f"  Cache: hit | scanned {age_str} ago | "
+                    f"cache {size}"
+                )
+        except Exception:
+            pass
 
     # ──────────────────── 交互 ────────────────────
 
