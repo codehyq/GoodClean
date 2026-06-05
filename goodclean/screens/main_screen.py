@@ -143,6 +143,7 @@ class MainScreen(Screen):
         self._showing_duplicates = False
         self._showing_suggestions = False
         self._current_suggestions: list[CleanupSuggestion] = []
+        self._current_scan_use_cache: bool = use_cache
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -170,7 +171,7 @@ class MainScreen(Screen):
 
     def _start_scan(self, use_cache: bool | None = None) -> None:
         if use_cache is not None:
-            self._use_cache = use_cache
+            self._current_scan_use_cache = use_cache
         self.scan_status = ScanStatus.SCANNING
         self._update_progress("正在扫描...", 0, 0)
         self._do_scan()
@@ -178,7 +179,7 @@ class MainScreen(Screen):
     @work(exclusive=True, thread=True)
     def _do_scan(self) -> None:
         start_time = time.time()
-        use_cache = self._use_cache
+        use_cache = self._current_scan_use_cache
         cached = None
 
         if use_cache:
@@ -243,7 +244,7 @@ class MainScreen(Screen):
         self._root_dir = result.root_dir
         self.scan_status = ScanStatus.DONE
 
-        cache_hint = " [cached]" if self._use_cache else ""
+        cache_hint = " [cached]" if self._current_scan_use_cache else ""
         self.query_one("#scan-progress", Static).update(
             f"  Done | {format_size(result.total_size)} | "
             f"{result.total_files} files | {result.total_dirs} dirs | "
@@ -271,7 +272,7 @@ class MainScreen(Screen):
         try:
             info = get_cache_info(self._scan_path)
             status = self.query_one("#cache-status", Static)
-            if not self._use_cache:
+            if not self._current_scan_use_cache:
                 status.update("  Cache: off (force refresh)")
                 return
             if info is None:
