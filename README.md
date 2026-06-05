@@ -96,7 +96,7 @@ goodclean --cache-info
 ```
 goodclean/
 ├── __main__.py              # Entry point & CLI argument parsing
-├── app.py                   # Main TUI application (Textual App)
+├── app.py                   # TUI coordinator (~40 lines, screen routing)
 ├── scanner.py               # Async directory scanner
 ├── analyzer.py              # Analysis engine (size calculation, stats)
 ├── cache.py                 # JSON-based caching with TTL
@@ -107,7 +107,9 @@ goodclean/
 ├── suggestion.py            # Cleanup suggestion & risk grading
 ├── models.py                # Data models (DirInfo, ScanResult, etc.)
 ├── constants.py             # Thresholds, file signatures, junk patterns
-├── screens/                 # Textual screen definitions
+├── screens/
+│   ├── welcome_screen.py    # Welcome screen (path selection, mode toggle)
+│   └── main_screen.py       # Main scan view (tree, search, cleanup actions)
 └── widgets/                 # Custom TUI widgets
     ├── confirm_dialog.py    # Confirmation dialog
     ├── directory_tree.py    # Directory tree view
