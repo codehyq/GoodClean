@@ -161,8 +161,8 @@ class WelcomeScreen(Screen):
                              id="welcome-cache-line")
 
                 yield Static(
-                    "提示：扫描时遇到权限报错属于正常现象，"
-                    "以管理员身份运行可减少此类情况。"
+                    "提示：扫描系统盘时可能遇到权限报错，"
+                    "右键 PowerShell → 以管理员身份运行可减少此类情况。"
                     "有权限限制的文件通常是系统关键文件，不建议清理。",
                     id="permission-tip",
                 )
