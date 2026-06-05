@@ -102,6 +102,15 @@ CSS = """
     margin-bottom: 1;
 }
 
+#permission-tip {
+    width: 100%;
+    height: auto;
+    color: $warning;
+    text-align: center;
+    margin-top: 1;
+    margin-bottom: 0;
+}
+
 #start-btn {
     width: 20;
     margin-top: 1;
@@ -150,6 +159,13 @@ class WelcomeScreen(Screen):
 
                 yield Static(self._make_cache_text(), classes="cache-line",
                              id="welcome-cache-line")
+
+                yield Static(
+                    "提示：扫描时遇到权限报错属于正常现象，"
+                    "以管理员身份运行可减少此类情况。"
+                    "有权限限制的文件通常是系统关键文件，不建议清理。",
+                    id="permission-tip",
+                )
 
                 yield Button("开始扫描", variant="primary", id="start-btn")
 
