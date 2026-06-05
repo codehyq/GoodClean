@@ -13,15 +13,23 @@ from textual.widgets import Button, Input, RadioSet, Static, Switch
 
 from ..analyzer import format_size
 from ..cache import list_all_caches
+from ..config import get_last_scan_path, get_use_cache
 
 
 def get_presets() -> list[tuple[str, str]]:
     """获取预设扫描路径列表：[(显示名, 路径)]"""
+    presets: list[tuple[str, str]] = []
+
+    # 上次扫描路径（如果有）
+    last_path = get_last_scan_path()
+    if last_path:
+        presets.append((f"上次扫描 ({last_path})", last_path))
+
     home = Path.home()
-    presets = [
+    presets.extend([
         (f"当前目录 ({os.getcwd()})", os.getcwd()),
         (f"C 盘 (C:\\)", "C:\\"),
-    ]
+    ])
     if os.path.exists("D:\\"):
         presets.append((f"D 盘 (D:\\)", "D:\\"))
     presets.extend([
@@ -134,7 +142,9 @@ class WelcomeScreen(Screen):
     def __init__(self, use_cache: bool = True, **kwargs):
         super().__init__(**kwargs)
         self._presets = get_presets()
-        self._use_cache = use_cache
+        # 从配置恢复缓存设置（如果用户设置过）
+        cached_setting = get_use_cache()
+        self._use_cache = cached_setting if cached_setting is not None else use_cache
 
     def compose(self) -> ComposeResult:
         with Vertical(id="welcome-view"):
@@ -199,6 +209,10 @@ class WelcomeScreen(Screen):
             path = custom
 
         use_cache = self.query_one("#cache-switch", Switch).value
+        # 保存配置
+        from ..config import set_last_scan_path, set_use_cache
+        set_last_scan_path(path)
+        set_use_cache(use_cache)
         self.app.switch_to_main(path, use_cache)
 
     @on(RadioSet.Changed, "#path-radio")

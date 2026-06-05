@@ -135,7 +135,10 @@ class MainScreen(Screen):
         self._scan_result: ScanResult | None = None
         self._root_dir: DirInfo | None = None
         self._selected_paths: set[str] = set()
-        self._sort_by_size = True
+        # 从配置恢复排序方式
+        from ..config import get_sort_by_size
+        cached_sort = get_sort_by_size()
+        self._sort_by_size = cached_sort if cached_sort is not None else True
         self._showing_types = False
         self._search_query = ""
         self._filter_type = ""
@@ -447,6 +450,9 @@ class MainScreen(Screen):
         if not self._scan_result:
             return
         self._sort_by_size = not self._sort_by_size
+        # 保存排序配置
+        from ..config import set_sort_by_size
+        set_sort_by_size(self._sort_by_size)
         size_bar = self.query_one("#size-bar", SizeBar)
         if self._sort_by_size:
             size_bar.set_data(self._scan_result.top_dirs, "Top 20")
