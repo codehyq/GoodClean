@@ -40,6 +40,8 @@ class DirectoryTree(Widget):
     BINDINGS = [
         ("enter", "toggle_node", "展开/折叠"),
         ("space", "toggle_select", "选中/取消"),
+        ("ctrl+a", "select_all", "全选"),
+        ("ctrl+i", "invert_selection", "反选"),
     ]
 
     selected_path: reactive[str] = reactive("")
@@ -50,6 +52,7 @@ class DirectoryTree(Widget):
         self._root_dir = root_dir
         self._tree: Optional[SelectableTree] = None
         self.selected_paths = set()
+        self._sort_mode = "size"
 
     def compose(self):
         self._tree = SelectableTree(
@@ -59,6 +62,11 @@ class DirectoryTree(Widget):
         self._tree.show_root = True
         self._tree.guide_depth = 2
         yield self._tree
+
+    def set_sort_mode(self, mode: str) -> None:
+        """设置排序模式"""
+        if mode in ("size", "count", "name", "mtime"):
+            self._sort_mode = mode
 
     def load_dir(self, dir_info: DirInfo) -> None:
         """加载目录数据到树中"""
@@ -73,10 +81,23 @@ class DirectoryTree(Widget):
 
         self._populate_tree(self._tree.root, dir_info)
 
+    def _get_sort_key(self, dir_info: DirInfo):
+        """根据当前排序模式获取排序键"""
+        if self._sort_mode == "size":
+            return dir_info.total_size
+        elif self._sort_mode == "count":
+            return dir_info.file_count
+        elif self._sort_mode == "name":
+            return dir_info.name.lower()
+        elif self._sort_mode == "mtime":
+            return dir_info.modified_time
+        return dir_info.total_size
+
     def _populate_tree(self, parent_node: TreeNode, dir_info: DirInfo) -> None:
         """递归填充树节点"""
+        reverse = self._sort_mode != "name"
         sorted_children = sorted(
-            dir_info.children, key=lambda d: d.total_size, reverse=True
+            dir_info.children, key=self._get_sort_key, reverse=reverse
         )
 
         for child in sorted_children:
@@ -152,6 +173,65 @@ class DirectoryTree(Widget):
                 return result
         return None
 
+    def expand_to_path(self, target_path: str) -> bool:
+        """展开目录树到指定路径，并选中该节点"""
+        if not self._tree or not self._root_dir:
+            return False
+
+        import os
+        from pathlib import Path
+
+        # 如果目标就是根目录
+        if target_path == self._root_dir.path:
+            self._tree.select_node(self._tree.root)
+            self.selected_path = target_path
+            return True
+
+        # 获取相对路径
+        try:
+            rel = Path(target_path).relative_to(self._root_dir.path)
+        except ValueError:
+            return False
+
+        current_node = self._tree.root
+        current_dir = self._root_dir
+
+        for part in rel.parts:
+            # 确保当前节点已展开并填充
+            if not current_node.is_expanded:
+                current_node.expand()
+                self._populate_tree(current_node, current_dir)
+
+            # 找到下一级目录
+            next_dir = None
+            for child in current_dir.children:
+                if child.name == part:
+                    next_dir = child
+                    break
+
+            if not next_dir:
+                return False
+
+            # 在 tree 中找到对应节点
+            next_node = None
+            for tree_child in current_node.children:
+                if tree_child.data == next_dir.path:
+                    next_node = tree_child
+                    break
+
+            if not next_node:
+                return False
+
+            current_node = next_node
+            current_dir = next_dir
+
+        # 选中最终节点
+        if current_node:
+            self._tree.select_node(current_node)
+            self.selected_path = current_node.data
+            return True
+        return False
+
     def action_toggle_node(self) -> None:
         """切换节点展开/折叠"""
         if self._tree:
@@ -180,3 +260,35 @@ class DirectoryTree(Widget):
             self.notify(f"{action} | 当前共选中 {len(self.selected_paths)} 个项目", timeout=2)
             if self._tree:
                 self._tree.refresh()
+
+    def _collect_all_paths(self, dir_info: Optional[DirInfo]) -> set[str]:
+        """递归收集所有目录路径"""
+        paths: set[str] = set()
+        if dir_info is None:
+            return paths
+        paths.add(dir_info.path)
+        for child in dir_info.children:
+            paths.update(self._collect_all_paths(child))
+        return paths
+
+    def action_select_all(self) -> None:
+        """全选所有目录"""
+        if not self._root_dir:
+            return
+        all_paths = self._collect_all_paths(self._root_dir)
+        self.selected_paths = all_paths
+        self.notify(f"已全选 {len(all_paths)} 个项目", timeout=2)
+        if self._tree:
+            self._tree.refresh()
+
+    def action_invert_selection(self) -> None:
+        """反选：已选的取消，未选的选中"""
+        if not self._root_dir:
+            return
+        all_paths = self._collect_all_paths(self._root_dir)
+        current = set(self.selected_paths)
+        inverted = all_paths - current
+        self.selected_paths = inverted
+        self.notify(f"反选完成 | 当前共选中 {len(inverted)} 个项目", timeout=2)
+        if self._tree:
+            self._tree.refresh()

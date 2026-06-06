@@ -13,7 +13,7 @@ from textual.widgets import Button, Input, RadioSet, Static, Switch
 
 from ..analyzer import format_size
 from ..cache import list_all_caches
-from ..config import get_last_scan_path, get_use_cache
+from ..config import get_last_scan_path, get_use_cache, has_saved_scan_result, load_scan_result
 
 
 def get_presets() -> list[tuple[str, str]]:
@@ -125,6 +125,12 @@ CSS = """
     align: center middle;
 }
 
+#load-persisted-btn {
+    width: 24;
+    margin-top: 1;
+    align: center middle;
+}
+
 #welcome-help {
     text-align: center;
     width: 100%;
@@ -139,12 +145,17 @@ class WelcomeScreen(Screen):
 
     CSS = CSS
 
+    BINDINGS = [
+        ("q", "quit_app", "退出"),
+    ]
+
     def __init__(self, use_cache: bool = True, **kwargs):
         super().__init__(**kwargs)
         self._presets = get_presets()
         # 从配置恢复缓存设置（如果用户设置过）
         cached_setting = get_use_cache()
         self._use_cache = cached_setting if cached_setting is not None else use_cache
+        self._has_persisted = has_saved_scan_result()
 
     def compose(self) -> ComposeResult:
         with Vertical(id="welcome-view"):
@@ -179,6 +190,9 @@ class WelcomeScreen(Screen):
 
                 yield Button("开始扫描", variant="primary", id="start-btn")
 
+                if self._has_persisted:
+                    yield Button("查看上次扫描结果", variant="default", id="load-persisted-btn")
+
                 yield Static(
                     "↑↓ 选择路径  |  Tab 切换控件  |  Enter 确认",
                     id="welcome-help",
@@ -186,6 +200,10 @@ class WelcomeScreen(Screen):
 
     def on_mount(self) -> None:
         self.query_one("#path-radio").focus()
+
+    def action_quit_app(self) -> None:
+        """退出应用"""
+        self.app.exit()
 
     @on(Button.Pressed, "#start-btn")
     def _on_start_pressed(self) -> None:
@@ -214,6 +232,15 @@ class WelcomeScreen(Screen):
         set_last_scan_path(path)
         set_use_cache(use_cache)
         self.app.switch_to_main(path, use_cache)
+
+    @on(Button.Pressed, "#load-persisted-btn")
+    def _on_load_persisted_pressed(self) -> None:
+        """点击加载上次扫描结果按钮"""
+        result = load_scan_result()
+        if result is None:
+            self.notify("上次扫描结果已过期或不存在", severity="warning")
+            return
+        self.app.switch_to_main(result.root_path, self._use_cache, persisted_result=result)
 
     @on(RadioSet.Changed, "#path-radio")
     def _on_path_radio_changed(self, event: RadioSet.Changed) -> None:

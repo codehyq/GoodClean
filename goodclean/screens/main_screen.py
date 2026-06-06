@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 
 from textual import on, work
@@ -19,7 +20,7 @@ from ..cleaner import CleanResult, permanent_delete, trash_files
 from ..constants import ScanStatus
 from ..duplicate_finder import find_duplicates, get_duplicate_stats
 from ..exporter import export_report
-from ..models import DirInfo, ScanResult
+from ..models import DirInfo, FileInfo, ScanResult
 from ..suggestion import CleanupSuggestion, generate_cleanup_suggestions, get_suggestion_summary
 from ..scanner import DirectoryScanner
 from ..widgets.confirm_dialog import ConfirmDialog
@@ -101,7 +102,7 @@ DirectoryTree {
 HELP_TEXT = (
     "  [[/]] 搜索  [[Space]] 选中  [[d]] 回收站  [[D]] 永久删除  "
     "[[s]] 排序  [[t]] 类型  [[e]] 导出  [[f]] 查重  "
-    "[[c]] 建议  [[x]] 一键清理  [[r]] 重扫  [[?]] 帮助  [[q]] 退出"
+    "[[a]] 删匹配  [[j]] 跳转  [[c]] 建议  [[x]] 一键清理  [[r]] 重扫  [[?]] 帮助  [[q]] 退出"
 )
 
 
@@ -120,29 +121,36 @@ class MainScreen(Screen):
         Binding("t", "show_types", "类型", show=True),
         Binding("e", "export_report", "导出", show=True),
         Binding("f", "find_duplicates", "查重", show=True),
+        Binding("a", "delete_all_matched", "删匹配", show=True),
+        Binding("j", "jump_to_matched", "跳转", show=True),
         Binding("c", "show_suggestions", "建议", show=True),
         Binding("x", "safe_cleanup", "一键清理", show=True),
+        Binding("q", "back_to_welcome", "退出", show=True),
         Binding("escape", "clear_search", "清除搜索", show=False),
     ]
 
     def __init__(self, scan_path: str, use_cache: bool = True,
-                 export_path: str | None = None, **kwargs):
+                 export_path: str | None = None,
+                 persisted_result: ScanResult | None = None, **kwargs):
         super().__init__(**kwargs)
         self._scan_path = scan_path
         self._use_cache = use_cache
         self._export_path = export_path
+        self._persisted_result = persisted_result
         self._scanner: DirectoryScanner | None = None
         self._scan_result: ScanResult | None = None
         self._root_dir: DirInfo | None = None
         self._selected_paths: set[str] = set()
         # 从配置恢复排序方式
-        from ..config import get_sort_by_size
-        cached_sort = get_sort_by_size()
-        self._sort_by_size = cached_sort if cached_sort is not None else True
+        from ..config import get_sort_mode
+        self._sort_mode = get_sort_mode()
         self._showing_types = False
         self._search_query = ""
         self._filter_type = ""
         self._filter_size = ""
+        self._filter_time = ""
+        self._matched_files: list[FileInfo] = []
+        self._matched_file_index = 0
         self._showing_duplicates = False
         self._showing_suggestions = False
         self._current_suggestions: list[CleanupSuggestion] = []
@@ -166,7 +174,10 @@ class MainScreen(Screen):
     def on_mount(self) -> None:
         search_bar = self.query_one("#search-bar", SearchBar)
         search_bar.set_on_search_change(self._on_search_change)
-        self._start_scan(use_cache=self._use_cache)
+        if self._persisted_result is not None:
+            self._on_scan_done(self._persisted_result)
+        else:
+            self._start_scan(use_cache=self._use_cache)
 
     # ──────────────────── 扫描 ────────────────────
 
@@ -247,6 +258,10 @@ class MainScreen(Screen):
         self._root_dir = result.root_dir
         self.scan_status = ScanStatus.DONE
 
+        # 保存扫描结果供下次快速加载
+        from ..config import save_scan_result
+        save_scan_result(result)
+
         cache_hint = " [cached]" if self._current_scan_use_cache else ""
         self.query_one("#scan-progress", Static).update(
             f"  Done | {format_size(result.total_size)} | "
@@ -255,8 +270,11 @@ class MainScreen(Screen):
         )
         self._update_cache_status()
 
-        self.query_one("#dir-tree", DirectoryTree).load_dir(result.root_dir)
-        self.query_one("#size-bar", SizeBar).set_data(result.top_dirs, "Top 20")
+        dir_tree = self.query_one("#dir-tree", DirectoryTree)
+        dir_tree.set_sort_mode(self._sort_mode)
+        dir_tree.load_dir(result.root_dir)
+        sorted_dirs = self._get_sorted_dirs(result.top_dirs)
+        self.query_one("#size-bar", SizeBar).set_data(sorted_dirs, "Top 20")
 
     def _on_scan_error(self, error: str) -> None:
         self.scan_status = ScanStatus.ERROR
@@ -301,8 +319,45 @@ class MainScreen(Screen):
         if path and self._root_dir:
             dir_info = self._find_dir(self._root_dir, path)
             if dir_info:
-                self.query_one("#file-info", FileInfoPanel).set_dir_info(dir_info)
+                # 搜索模式下，收集该目录下匹配的文件
+                matched_files = []
+                has_filter = self._search_query or self._filter_type or self._filter_size or self._filter_time
+                if has_filter:
+                    for f in dir_info.files:
+                        if matches_search_filter(
+                            f.name, f.path, f.size, f.extension, f.modified_time,
+                            self._search_query, self._filter_type, self._filter_size, self._filter_time,
+                        ):
+                            matched_files.append(f)
+                    matched_files = self._get_sorted_files(matched_files)
+
+                self.query_one("#file-info", FileInfoPanel).set_dir_info(dir_info, matched_files)
                 self.query_one("#size-bar", SizeBar).set_highlight(path)
+
+    def on_size_bar_file_selected(self, event) -> None:
+        """点击 SizeBar 中的某一行时跳转到对应目录"""
+        target_path = event.path
+        if not target_path or not self._root_dir:
+            return
+
+        dir_tree = self.query_one("#dir-tree", DirectoryTree)
+        size_bar = self.query_one("#size-bar", SizeBar)
+
+        if event.is_file:
+            dir_path = os.path.dirname(target_path)
+            if dir_tree.expand_to_path(dir_path):
+                size_bar.set_highlight(target_path)
+                # 同步显示文件详情
+                for f in self._matched_files:
+                    if f.path == target_path:
+                        self.query_one("#file-info", FileInfoPanel).set_file_info(f)
+                        break
+        else:
+            if dir_tree.expand_to_path(target_path):
+                size_bar.set_highlight(target_path)
+                dir_info = self._find_dir(self._root_dir, target_path)
+                if dir_info:
+                    self.query_one("#file-info", FileInfoPanel).set_dir_info(dir_info)
 
     def _find_dir(self, di: DirInfo | None, path: str) -> DirInfo | None:
         if di is None:
@@ -315,27 +370,38 @@ class MainScreen(Screen):
                 return result
         return None
 
-    def _on_search_change(self, query: str, filter_type: str, filter_size: str) -> None:
+    def _on_search_change(self, query: str, filter_type: str, filter_size: str, filter_time: str) -> None:
         self._search_query = query
         self._filter_type = filter_type
         self._filter_size = filter_size
+        self._filter_time = filter_time
         self._update_filtered_view()
 
     def _update_filtered_view(self) -> None:
         if not self._scan_result or not self._root_dir:
             return
-        if not self._search_query and not self._filter_type and not self._filter_size:
-            self.query_one("#size-bar", SizeBar).set_data(self._scan_result.top_dirs, "Top 20")
+        has_filter = self._search_query or self._filter_type or self._filter_size or self._filter_time
+        if not has_filter:
+            sorted_dirs = self._get_sorted_dirs(self._scan_result.top_dirs)
+            self.query_one("#size-bar", SizeBar).set_data(sorted_dirs, "Top 20")
             self.query_one("#search-bar", SearchBar).update_result_count(0, 0)
+            self._matched_files = []
             return
 
         matched_files = []
         self._collect_filtered_files(self._root_dir, matched_files)
+        self._matched_files = matched_files
+        self._matched_file_index = 0
 
         size_bar = self.query_one("#size-bar", SizeBar)
         if matched_files:
-            matched_files.sort(key=lambda f: f.size, reverse=True)
-            size_bar.set_file_data(matched_files[:20], "Top 20")
+            matched_files = self._get_sorted_files(matched_files)
+            total_matched_size = sum(f.size for f in matched_files)
+            title = f"找到 {len(matched_files)} 个文件 | {format_size(total_matched_size)}"
+            size_bar.set_file_data(matched_files[:20], title)
+            size_bar.set_jump_index(1, len(matched_files))
+        else:
+            size_bar.set_empty("  未找到匹配的文件\n")
 
         self.query_one("#search-bar", SearchBar).update_result_count(
             len(matched_files), self._scan_result.total_files
@@ -344,8 +410,8 @@ class MainScreen(Screen):
     def _collect_filtered_files(self, di: DirInfo, result: list) -> None:
         for f in di.files:
             if matches_search_filter(
-                f.name, f.path, f.size, f.extension,
-                self._search_query, self._filter_type, self._filter_size,
+                f.name, f.path, f.size, f.extension, f.modified_time,
+                self._search_query, self._filter_type, self._filter_size, self._filter_time,
             ):
                 result.append(f)
         for child in di.children:
@@ -446,22 +512,68 @@ class MainScreen(Screen):
 
     # ──────────────────── 工具 ────────────────────
 
+    def action_back_to_welcome(self) -> None:
+        """返回欢迎界面"""
+        from .welcome_screen import WelcomeScreen
+        self.app.switch_screen(WelcomeScreen())
+
+    def _get_sorted_dirs(self, dirs: list[DirInfo]) -> list[DirInfo]:
+        """根据当前排序模式对目录列表排序"""
+        if self._sort_mode == "size":
+            return sorted(dirs, key=lambda d: d.total_size, reverse=True)
+        elif self._sort_mode == "count":
+            return sorted(dirs, key=lambda d: d.file_count, reverse=True)
+        elif self._sort_mode == "name":
+            return sorted(dirs, key=lambda d: d.name.lower())
+        elif self._sort_mode == "mtime":
+            return sorted(dirs, key=lambda d: d.modified_time, reverse=True)
+        return dirs
+
+    def _get_sorted_files(self, files: list[FileInfo]) -> list[FileInfo]:
+        """根据当前排序模式对文件列表排序"""
+        if self._sort_mode == "size" or self._sort_mode == "count":
+            return sorted(files, key=lambda f: f.size, reverse=True)
+        elif self._sort_mode == "name":
+            return sorted(files, key=lambda f: f.name.lower())
+        elif self._sort_mode == "mtime":
+            return sorted(files, key=lambda f: f.modified_time, reverse=True)
+        return files
+
+    def _apply_sort(self) -> None:
+        """应用当前排序模式到所有视图"""
+        if not self._scan_result:
+            return
+
+        size_bar = self.query_one("#size-bar", SizeBar)
+        dir_tree = self.query_one("#dir-tree", DirectoryTree)
+
+        # 更新目录树排序
+        dir_tree.set_sort_mode(self._sort_mode)
+        if self._root_dir:
+            dir_tree.load_dir(self._root_dir)
+
+        # 如果处于特殊视图，不改动 SizeBar
+        if self._showing_types or self._showing_duplicates or self._showing_suggestions:
+            return
+
+        if self._search_query or self._filter_type or self._filter_size or self._filter_time:
+            self._update_filtered_view()
+        else:
+            sorted_dirs = self._get_sorted_dirs(self._scan_result.top_dirs)
+            size_bar.set_data(sorted_dirs, "Top 20")
+
     def action_toggle_sort(self) -> None:
         if not self._scan_result:
             return
-        self._sort_by_size = not self._sort_by_size
+        SORT_MODES = ["size", "count", "name", "mtime"]
+        idx = SORT_MODES.index(self._sort_mode)
+        self._sort_mode = SORT_MODES[(idx + 1) % len(SORT_MODES)]
         # 保存排序配置
-        from ..config import set_sort_by_size
-        set_sort_by_size(self._sort_by_size)
-        size_bar = self.query_one("#size-bar", SizeBar)
-        if self._sort_by_size:
-            size_bar.set_data(self._scan_result.top_dirs, "Top 20")
-        else:
-            sorted_dirs = sorted(
-                self._scan_result.top_dirs, key=lambda d: d.file_count, reverse=True,
-            )[:20]
-            size_bar.set_data(sorted_dirs, "Top 20")
-        self.notify(f"排序方式: {'大小' if self._sort_by_size else '文件数量'}")
+        from ..config import set_sort_mode
+        set_sort_mode(self._sort_mode)
+        self._apply_sort()
+        mode_names = {"size": "大小", "count": "文件数量", "name": "名称", "mtime": "修改时间"}
+        self.notify(f"排序方式: {mode_names.get(self._sort_mode, self._sort_mode)}")
 
     def action_rescan(self) -> None:
         self._start_scan(use_cache=False)
@@ -484,7 +596,8 @@ class MainScreen(Screen):
             size_bar.set_category_data(categories, f"类型分布 Top {len(categories)}")
         else:
             if self._scan_result:
-                size_bar.set_data(self._scan_result.top_dirs, "Top 20")
+                sorted_dirs = self._get_sorted_dirs(self._scan_result.top_dirs)
+                size_bar.set_data(sorted_dirs, "Top 20")
 
     def action_focus_search(self) -> None:
         input_widget = self.query_one("#search-bar", SearchBar).query_one("#search-input")
@@ -526,7 +639,8 @@ class MainScreen(Screen):
             size_bar.set_data(dup_dirs, f"Top 20 (可节省 {savings})")
         else:
             if self._scan_result:
-                size_bar.set_data(self._scan_result.top_dirs, "Top 20")
+                sorted_dirs = self._get_sorted_dirs(self._scan_result.top_dirs)
+                size_bar.set_data(sorted_dirs, "Top 20")
 
     def action_show_suggestions(self) -> None:
         if not self._root_dir:
@@ -552,7 +666,92 @@ class MainScreen(Screen):
         else:
             self._current_suggestions = []
             if self._scan_result:
-                size_bar.set_data(self._scan_result.top_dirs, "Top 20")
+                sorted_dirs = self._get_sorted_dirs(self._scan_result.top_dirs)
+                size_bar.set_data(sorted_dirs, "Top 20")
+
+    def action_delete_all_matched(self) -> None:
+        """删除所有搜索/筛选匹配的文件"""
+        if not self._scan_result:
+            self.notify("请先等待扫描完成", severity="warning")
+            return
+
+        has_filter = self._search_query or self._filter_type or self._filter_size or self._filter_time
+        if not has_filter:
+            self.notify("请先设置搜索或筛选条件", severity="warning")
+            return
+
+        if not self._matched_files:
+            self.notify("没有匹配的文件", severity="info")
+            return
+
+        paths = [f.path for f in self._matched_files]
+        total_size = sum(f.size for f in self._matched_files)
+
+        self.app.push_screen(
+            ConfirmDialog(
+                f"删除所有匹配的 {len(paths)} 个文件？",
+                count=len(paths), total_size=total_size, is_permanent=False,
+            ),
+            lambda confirmed: self._on_delete_matched_confirm(confirmed, paths),
+        )
+
+    def _on_delete_matched_confirm(self, confirmed: bool | None, paths: list[str]) -> None:
+        if not confirmed or not paths:
+            return
+
+        progress_static = self.query_one("#scan-progress", Static)
+        progress_static.update(f"  正在删除 {len(paths)} 个文件...")
+
+        def on_progress(current, total, path, freed):
+            progress_static.update(
+                f"  删除中 {current}/{total} | "
+                f"已释放 {format_size(freed)}..."
+            )
+
+        result = trash_files(paths, on_progress=on_progress)
+
+        if result.success_count > 0:
+            self.notify(
+                f"已删除 {result.success_count} 个文件，"
+                f"释放 {format_size(result.total_freed)}",
+                severity="information",
+            )
+        if result.fail_count > 0:
+            self.notify(f"{result.fail_count} 个文件删除失败", severity="warning")
+
+        # 清空搜索条件并刷新
+        self.action_clear_search()
+        self.action_rescan()
+
+    def action_jump_to_matched(self) -> None:
+        """跳转到当前匹配文件所在的目录（循环切换）"""
+        if not self._matched_files:
+            self.notify("没有匹配的文件", severity="info")
+            return
+
+        idx = self._matched_file_index % len(self._matched_files)
+        file_info = self._matched_files[idx]
+        dir_path = os.path.dirname(file_info.path)
+
+        dir_tree = self.query_one("#dir-tree", DirectoryTree)
+        if dir_tree.expand_to_path(dir_path):
+            size_bar = self.query_one("#size-bar", SizeBar)
+            size_bar.set_highlight(file_info.path)
+            size_bar.set_jump_index(idx + 1, len(self._matched_files))
+
+            # 同步显示文件详情到底部面板
+            self.query_one("#file-info", FileInfoPanel).set_file_info(file_info)
+
+            parent_name = os.path.basename(dir_path) or dir_path
+            self.notify(
+                f"({idx + 1}/{len(self._matched_files)}) {file_info.name}\n"
+                f"📁 {parent_name}  |  {format_size(file_info.size)}",
+                timeout=2,
+            )
+        else:
+            self.notify("跳转失败：目录未找到", severity="warning")
+
+        self._matched_file_index += 1
 
     def action_safe_cleanup(self) -> None:
         if not self._scan_result:

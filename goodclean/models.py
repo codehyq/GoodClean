@@ -49,6 +49,7 @@ class DirInfo:
     files: list[FileInfo] = field(default_factory=list)
     has_permission_error: bool = False
     is_symlink: bool = False
+    modified_time: float = 0.0
 
     @property
     def depth(self) -> int:
@@ -61,12 +62,14 @@ class DirInfo:
         self.total_size += child.total_size
         self.file_count += child.file_count
         self.dir_count += child.dir_count + 1
+        self.modified_time = max(self.modified_time, child.modified_time)
 
     def add_file(self, f: FileInfo) -> None:
         """添加文件并更新统计"""
         self.files.append(f)
         self.total_size += f.size
         self.file_count += 1
+        self.modified_time = max(self.modified_time, f.modified_time)
 
 
 @dataclass

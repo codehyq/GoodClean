@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Optional
 
 from rich.text import Text
+from textual.events import Click
+from textual.message import Message
 from textual.reactive import reactive
 from textual.widget import Widget
 
@@ -14,6 +17,13 @@ from ..models import DirInfo, FileInfo
 
 class SizeBar(Widget):
     """大小排行柱状图"""
+
+    class FileSelected(Message):
+        """用户点击了某一行"""
+        def __init__(self, path: str, is_file: bool) -> None:
+            self.path = path
+            self.is_file = is_file
+            super().__init__()
 
     DEFAULT_CSS = """
     SizeBar {
@@ -29,12 +39,32 @@ class SizeBar(Widget):
         self._max_size = 0
         self._title = "大小排行"
         self._highlight_path: str = ""
+        self._show_parent_dir = False
+        self._empty_message: str = ""
+        self._junk_flags: list[bool] = []
+        self._jump_index: int = 0
+        self._jump_total: int = 0
         # 类型分布模式专用
         self._category_mode = False
         self._category_items: list[dict] = []
         # 清理建议模式专用
         self._suggestion_mode = False
         self._suggestion_items: list = []
+
+    def set_empty(self, message: str = "  暂无数据\n") -> None:
+        """设置空状态提示"""
+        self._category_mode = False
+        self._category_items = []
+        self._suggestion_mode = False
+        self._suggestion_items = []
+        self._show_parent_dir = False
+        self._empty_message = message
+        self._items = []
+        self._junk_flags = []
+        self._jump_index = 0
+        self._jump_total = 0
+        self._max_size = 0
+        self.refresh()
 
     def set_data(
         self,
@@ -47,8 +77,13 @@ class SizeBar(Widget):
         self._category_items = []
         self._suggestion_mode = False
         self._suggestion_items = []
+        self._show_parent_dir = False
+        self._empty_message = ""
+        self._jump_index = 0
+        self._jump_total = 0
         self._title = title
         self._items = []
+        self._junk_flags = []
         for d in dirs[:max_items]:
             self._items.append((d.name, d.total_size, d.path))
         if self._items:
@@ -68,10 +103,16 @@ class SizeBar(Widget):
         self._category_items = []
         self._suggestion_mode = False
         self._suggestion_items = []
+        self._show_parent_dir = True
+        self._empty_message = ""
+        self._jump_index = 0
+        self._jump_total = 0
         self._title = title
         self._items = []
+        self._junk_flags = []
         for f in files[:max_items]:
             self._items.append((f.name, f.size, f.path))
+            self._junk_flags.append(f.is_junk)
         if self._items:
             self._max_size = max(item[1] for item in self._items)
         else:
@@ -124,12 +165,43 @@ class SizeBar(Widget):
         self._highlight_path = path
         self.refresh()
 
+    def set_jump_index(self, current: int, total: int) -> None:
+        """设置当前跳转索引"""
+        self._jump_index = current
+        self._jump_total = total
+        self.refresh()
+
+    def on_click(self, event: Click) -> None:
+        """鼠标点击某一行时触发跳转"""
+        if not self._items or self._suggestion_mode or self._category_mode or self._empty_message:
+            return
+
+        # 计算列表项起始行（标题1行 + 可选提示1行 + 横线1行）
+        start_y = 2
+        if self._show_parent_dir and any(self._junk_flags):
+            start_y = 3
+
+        idx = event.y - start_y
+        if 0 <= idx < len(self._items):
+            name, size, path = self._items[idx]
+            is_file = self._show_parent_dir
+            self.post_message(self.FileSelected(path, is_file))
+
     def render(self) -> Text:
         text = Text()
-        text.append(f"  {self._title}\n", style="bold underline")
+        title = self._title
+        if self._jump_index > 0 and self._jump_total > 0:
+            title = f"{self._title}  |  第 {self._jump_index}/{self._jump_total}"
+        text.append(f"  {title}\n", style="bold underline")
+        if self._show_parent_dir and any(self._junk_flags):
+            text.append("  ♻ = 可安全清理  ", style="dim green")
+            text.append("|  ", style="dim")
+            text.append("按 j 跳转到目录树\n", style="dim cyan")
         text.append("─" * 54 + "\n", style="dim")
 
-        if self._suggestion_mode:
+        if self._empty_message:
+            text.append(self._empty_message, style="dim")
+        elif self._suggestion_mode:
             self._render_suggestions(text)
         elif self._category_mode:
             self._render_categories(text)
@@ -246,9 +318,9 @@ class SizeBar(Widget):
             text.append("  暂无数据\n", style="dim")
             return
 
-        # 计算最大名称宽度
-        max_name_len = max(len(name) for name, _, _ in self._items)
-        bar_width = 30
+        # 计算最大名称宽度（限制在合理范围）
+        max_name_len = min(max(len(name) for name, _, _ in self._items), 20)
+        bar_width = 14 if self._show_parent_dir else 30
 
         for i, (name, size, path) in enumerate(self._items):
             is_highlighted = path == self._highlight_path
@@ -266,10 +338,24 @@ class SizeBar(Widget):
             bar = "█" * bar_len + "░" * (bar_width - bar_len)
             size_str = format_size(size).rjust(10)
 
+            # 文件模式下显示父目录
+            parent_str = ""
+            if self._show_parent_dir:
+                parent = Path(path).parent.name
+                if parent:
+                    parent_display = parent[:14]
+                    parent_str = f"  {parent_display}"
+
+            is_junk = self._show_parent_dir and i < len(self._junk_flags) and self._junk_flags[i]
             style = "bold white on dark_green" if is_highlighted else ""
             highlight_mark = "▶" if is_highlighted else " "
+            junk_mark = "♻" if is_junk else " "
+            name_style = style or "bold"
 
-            text.append(f"{highlight_mark}", style="bold yellow" if is_highlighted else "")
-            text.append(f" {display_name} ", style=style or "bold")
+            text.append(f"{highlight_mark}{junk_mark}", style="bold yellow" if is_highlighted else "bold green" if is_junk else "")
+            text.append(f" {display_name} ", style=name_style)
             text.append(f"{bar}", style="green" if not is_highlighted else "bold white on dark_green")
-            text.append(f" {size_str}\n", style="dim")
+            text.append(f" {size_str}", style="dim")
+            if parent_str:
+                text.append(parent_str, style="dim cyan")
+            text.append("\n", style="")

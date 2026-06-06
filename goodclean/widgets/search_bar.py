@@ -42,12 +42,18 @@ class SearchBar(Widget):
 
     #filter-size {
         width: 1fr;
+        max-width: 16;
+        height: 3;
+    }
+
+    #filter-time {
+        width: 1fr;
         max-width: 18;
         height: 3;
     }
 
     #search-info {
-        width: 15;
+        width: 12;
         height: 3;
     }
     """
@@ -55,10 +61,11 @@ class SearchBar(Widget):
     search_query: reactive[str] = reactive("")
     filter_type: reactive[str] = reactive("")
     filter_size: reactive[str] = reactive("")
+    filter_time: reactive[str] = reactive("")
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._on_search_change: Optional[Callable[[str, str, str], None]] = None
+        self._on_search_change: Optional[Callable[[str, str, str, str], None]] = None
 
     def compose(self) -> ComposeResult:
         with Horizontal():
@@ -94,6 +101,20 @@ class SearchBar(Widget):
                 prompt="大小",
                 id="filter-size",
             )
+            yield Select(
+                [
+                    ("全部时间", ""),
+                    ("7天内", "7d"),
+                    ("30天内", "30d"),
+                    ("90天内", "90d"),
+                    ("1年内", "1y"),
+                    ("1年前", "1y_ago"),
+                    ("2年前", "2y_ago"),
+                    ("3年前", "3y_ago"),
+                ],
+                prompt="时间",
+                id="filter-time",
+            )
             yield Static(" ", id="search-info")
 
     def on_input_changed(self, event: Input.Changed) -> None:
@@ -110,6 +131,9 @@ class SearchBar(Widget):
         elif event.select.id == "filter-size":
             self.filter_size = event.value or ""
             self._notify_change()
+        elif event.select.id == "filter-time":
+            self.filter_time = event.value or ""
+            self._notify_change()
 
     def _notify_change(self) -> None:
         """通知搜索条件变化"""
@@ -118,16 +142,17 @@ class SearchBar(Widget):
                 self.search_query,
                 self.filter_type,
                 self.filter_size,
+                self.filter_time,
             )
 
-    def set_on_search_change(self, callback: Callable[[str, str, str], None]) -> None:
+    def set_on_search_change(self, callback: Callable[[str, str, str, str], None]) -> None:
         """设置搜索条件变化回调"""
         self._on_search_change = callback
 
     def update_result_count(self, count: int, total: int) -> None:
         """更新搜索结果数量显示"""
         info = self.query_one("#search-info", Static)
-        if self.search_query or self.filter_type or self.filter_size:
+        if self.search_query or self.filter_type or self.filter_size or self.filter_time:
             info.update(f" {count}/{total} ")
         else:
             info.update(" ")
@@ -137,6 +162,7 @@ class SearchBar(Widget):
         self.search_query = ""
         self.filter_type = ""
         self.filter_size = ""
+        self.filter_time = ""
 
         # 重置 UI
         input_widget = self.query_one("#search-input", Input)
@@ -148,7 +174,13 @@ class SearchBar(Widget):
         size_select = self.query_one("#filter-size", Select)
         size_select.value = ""
 
+        time_select = self.query_one("#filter-time", Select)
+        time_select.value = ""
+
         self._notify_change()
+
+
+import time
 
 
 def matches_search_filter(
@@ -156,9 +188,11 @@ def matches_search_filter(
     path: str,
     size: int,
     extension: str,
+    modified_time: float,
     query: str,
     filter_type: str,
     filter_size: str,
+    filter_time: str,
 ) -> bool:
     """检查文件是否匹配搜索和过滤条件"""
 
@@ -183,5 +217,29 @@ def matches_search_filter(
         threshold = size_thresholds.get(filter_size, 0)
         if size < threshold:
             return False
+
+    # 过滤修改时间
+    if filter_time:
+        now = time.time()
+        days = {
+            "7d": 7,
+            "30d": 30,
+            "90d": 90,
+            "1y": 365,
+        }
+        if filter_time in days:
+            # N 天内：modified_time >= now - N天
+            threshold_sec = days[filter_time] * 86400
+            if modified_time < now - threshold_sec:
+                return False
+        elif filter_time == "1y_ago":
+            if modified_time >= now - 365 * 86400:
+                return False
+        elif filter_time == "2y_ago":
+            if modified_time >= now - 730 * 86400:
+                return False
+        elif filter_time == "3y_ago":
+            if modified_time >= now - 1095 * 86400:
+                return False
 
     return True

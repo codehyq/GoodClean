@@ -31,18 +31,21 @@ class FileInfoPanel(Widget):
         super().__init__(**kwargs)
         self._dir_info: DirInfo | None = None
         self._file_info: FileInfo | None = None
+        self._matched_files: list[FileInfo] = []
 
-    def set_dir_info(self, dir_info: DirInfo) -> None:
+    def set_dir_info(self, dir_info: DirInfo, matched_files: list[FileInfo] | None = None) -> None:
         """设置要展示的目录信息"""
         self._dir_info = dir_info
         self._file_info = None
         self.path = dir_info.path
+        self._matched_files = matched_files or []
         self.refresh()
 
     def set_file_info(self, file_info: FileInfo) -> None:
         """设置要展示的文件信息"""
         self._file_info = file_info
         self._dir_info = None
+        self._matched_files = []
         self.path = file_info.path
         self.refresh()
 
@@ -50,6 +53,7 @@ class FileInfoPanel(Widget):
         """清除信息"""
         self._dir_info = None
         self._file_info = None
+        self._matched_files = []
         self.path = ""
         self.refresh()
 
@@ -64,6 +68,14 @@ class FileInfoPanel(Widget):
             text.append(f"   大小: {format_size(d.total_size)}", style="green bold")
             text.append(f"   文件: {d.file_count}", style="cyan")
             text.append(f"   子目录: {d.dir_count}\n", style="cyan")
+
+            if self._matched_files:
+                text.append(f"   匹配文件 ({len(self._matched_files)} 个):\n", style="bold cyan")
+                for f in self._matched_files[:5]:
+                    text.append(f"     • {f.name} ", style="")
+                    text.append(f"{format_size(f.size)}\n", style="dim")
+                if len(self._matched_files) > 5:
+                    text.append(f"     ... 还有 {len(self._matched_files) - 5} 个\n", style="dim")
 
             if d.has_permission_error:
                 text.append("   ⚠️ 部分内容无权限访问\n", style="yellow")

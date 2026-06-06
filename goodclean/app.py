@@ -28,13 +28,15 @@ class GoodCleanApp(App):
             # 显示欢迎界面
             self.push_screen(WelcomeScreen(use_cache=self._use_cache))
 
-    def switch_to_main(self, scan_path: str, use_cache: bool) -> None:
+    def switch_to_main(self, scan_path: str, use_cache: bool,
+                        persisted_result=None) -> None:
         """从欢迎界面切换到主扫描视图"""
         self._scan_path = scan_path
         self._use_cache = use_cache
         self.switch_screen(MainScreen(
             scan_path=scan_path, use_cache=use_cache,
             export_path=self._export_path,
+            persisted_result=persisted_result,
         ))
 
     def push_main_screen(self, scan_path: str, use_cache: bool) -> None:

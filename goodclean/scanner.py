@@ -225,6 +225,7 @@ class DirectoryScanner:
         target.dir_count = source.dir_count
         target.has_permission_error = source.has_permission_error
         target.is_symlink = source.is_symlink
+        target.modified_time = source.modified_time
         target.files = list(source.files)
         target.children = []
 
@@ -238,6 +239,7 @@ class DirectoryScanner:
                 dir_count=child.dir_count,
                 has_permission_error=child.has_permission_error,
                 is_symlink=child.is_symlink,
+                modified_time=child.modified_time,
                 files=list(child.files),
             )
             child_copy.children = []
