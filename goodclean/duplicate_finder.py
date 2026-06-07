@@ -5,8 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 from collections import defaultdict
-from pathlib import Path
-from typing import Optional
+from typing import Any
 
 from .models import DirInfo, FileInfo
 
@@ -33,7 +32,7 @@ def find_duplicates(root_dir: DirInfo, min_size: int = 1024) -> list[list[FileIn
     # 第二步：对头尾采样计算 preview_hash
     preview_groups: dict[str, list[FileInfo]] = defaultdict(list)
 
-    for size, files in size_groups.items():
+    for _size, files in size_groups.items():
         if len(files) < 2:
             continue
 
@@ -45,7 +44,7 @@ def find_duplicates(root_dir: DirInfo, min_size: int = 1024) -> list[list[FileIn
     # 第三步：对 preview_hash 相同的文件计算 full_hash 确认
     full_hash_groups: dict[str, list[FileInfo]] = defaultdict(list)
 
-    for preview_hash, files in preview_groups.items():
+    for _preview_hash, files in preview_groups.items():
         if len(files) < 2:
             continue
 
@@ -56,7 +55,7 @@ def find_duplicates(root_dir: DirInfo, min_size: int = 1024) -> list[list[FileIn
 
     # 第四步：筛选出真正的重复文件（每组 2 个以上）
     duplicates = []
-    for file_hash, files in full_hash_groups.items():
+    for _file_hash, files in full_hash_groups.items():
         if len(files) >= 2:
             # 按修改时间排序，保留最新的
             files.sort(key=lambda f: f.modified_time, reverse=True)
@@ -84,7 +83,7 @@ def _collect_files_by_size(
         _collect_files_by_size(child, size_groups, min_size)
 
 
-def _compute_preview_hash(file_path: str, chunk_size: int = 8192) -> Optional[str]:
+def _compute_preview_hash(file_path: str, chunk_size: int = 8192) -> str | None:
     """计算文件的预览哈希（快速预筛）
 
     小文件（≤16KB）直接全量读取；大文件读取头尾各 8KB 采样。
@@ -109,7 +108,7 @@ def _compute_preview_hash(file_path: str, chunk_size: int = 8192) -> Optional[st
         return None
 
 
-def _compute_full_hash(file_path: str, chunk_size: int = 65536) -> Optional[str]:
+def _compute_full_hash(file_path: str, chunk_size: int = 65536) -> str | None:
     """计算文件的完整 MD5 哈希（全量确认）
 
     分块读取文件内容，避免一次性加载大文件到内存。
@@ -128,9 +127,9 @@ def _compute_full_hash(file_path: str, chunk_size: int = 65536) -> Optional[str]
         return None
 
 
-def get_duplicate_stats(duplicates: list[list[FileInfo]]) -> dict:
+def get_duplicate_stats(duplicates: list[list[FileInfo]]) -> dict[str, Any]:
     """获取重复文件统计信息
-    
+
     Returns:
         包含统计信息的字典
     """

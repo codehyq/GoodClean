@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import fnmatch
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 from .constants import (
     JUNK_DIRNAMES,
@@ -183,7 +183,7 @@ def get_file_type_distribution(dir_info: DirInfo) -> dict[str, tuple[int, int]]:
     return dict(sorted(dist.items(), key=lambda x: x[1][1], reverse=True))
 
 
-def get_file_category_distribution(dir_info: DirInfo) -> list[dict]:
+def get_file_category_distribution(dir_info: DirInfo) -> list[dict[str, Any]]:
     """获取文件按逻辑类型的分布统计。
 
     使用 file_type 字段（已通过文件头/扩展名分类），返回按大小降序的列表。
@@ -216,4 +216,4 @@ def get_file_category_distribution(dir_info: DirInfo) -> list[dict]:
             categories[cat]["top_ext"] = top_ext
 
     result = sorted(categories.values(), key=lambda x: x["total_size"], reverse=True)  # type: ignore
-    return result  # type: ignore
+    return result

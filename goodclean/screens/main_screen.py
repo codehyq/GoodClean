@@ -6,7 +6,7 @@ import asyncio
 import os
 import time
 
-from textual import on, work
+from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
@@ -21,14 +21,13 @@ from ..constants import ScanStatus
 from ..duplicate_finder import find_duplicates, get_duplicate_stats
 from ..exporter import export_report
 from ..models import DirInfo, FileInfo, ScanResult
-from ..suggestion import CleanupSuggestion, generate_cleanup_suggestions, get_suggestion_summary
 from ..scanner import DirectoryScanner
+from ..suggestion import CleanupSuggestion, generate_cleanup_suggestions, get_suggestion_summary
 from ..widgets.confirm_dialog import ConfirmDialog
 from ..widgets.directory_tree import DirectoryTree
 from ..widgets.file_info import FileInfoPanel
 from ..widgets.search_bar import SearchBar, matches_search_filter
 from ..widgets.size_bar import SizeBar
-
 
 CSS = """
 #scan-progress {
@@ -323,12 +322,17 @@ class MainScreen(Screen):
             if dir_info:
                 # 搜索模式下，收集该目录下匹配的文件
                 matched_files = []
-                has_filter = self._search_query or self._filter_type or self._filter_size or self._filter_time
+                has_filter = (
+                    self._search_query or self._filter_type
+                    or self._filter_size or self._filter_time
+                )
                 if has_filter:
                     for f in dir_info.files:
                         if matches_search_filter(
-                            f.name, f.path, f.size, f.extension, f.modified_time,
-                            self._search_query, self._filter_type, self._filter_size, self._filter_time,
+                            f.name, f.path, f.size, f.extension,
+                            f.modified_time,
+                            self._search_query, self._filter_type,
+                            self._filter_size, self._filter_time,
                         ):
                             matched_files.append(f)
                     matched_files = self._get_sorted_files(matched_files)
@@ -372,7 +376,10 @@ class MainScreen(Screen):
                 return result
         return None
 
-    def _on_search_change(self, query: str, filter_type: str, filter_size: str, filter_time: str) -> None:
+    def _on_search_change(
+        self, query: str, filter_type: str,
+        filter_size: str, filter_time: str,
+    ) -> None:
         self._search_query = query
         self._filter_type = filter_type
         self._filter_size = filter_size
@@ -394,7 +401,10 @@ class MainScreen(Screen):
         """更新筛选视图。无搜索条件时同步清理；有搜索条件时触发后台搜索。"""
         if not self._scan_result or not self._root_dir:
             return
-        has_filter = self._search_query or self._filter_type or self._filter_size or self._filter_time
+        has_filter = (
+            self._search_query or self._filter_type
+            or self._filter_size or self._filter_time
+        )
         if not has_filter:
             sorted_dirs = self._get_sorted_dirs(self._scan_result.top_dirs)
             self.query_one("#size-bar", SizeBar).set_data(sorted_dirs, "Top 20")
@@ -413,11 +423,17 @@ class MainScreen(Screen):
         """在后台线程执行文件搜索，避免阻塞主线程 UI"""
         if not self._scan_result or not self._root_dir:
             return
-        has_filter = self._search_query or self._filter_type or self._filter_size or self._filter_time
+        has_filter = (
+            self._search_query or self._filter_type
+            or self._filter_size or self._filter_time
+        )
         if not has_filter:
             return
 
-        key = (self._search_query, self._filter_type, self._filter_size, self._filter_time)
+        key = (
+            self._search_query, self._filter_type,
+            self._filter_size, self._filter_time,
+        )
         matched = self._search_cache.get(key)
         if matched is None:
             matched = []
@@ -481,7 +497,7 @@ class MainScreen(Screen):
         paths = self._get_selected_paths()
         if not paths:
             return
-        self.query_one("#scan-progress", Static).update(f"  正在计算项目数并移到回收站...")
+        self.query_one("#scan-progress", Static).update("  正在计算项目数并移到回收站...")
         self._do_trash(paths)
 
     @work(exclusive=True, thread=True)
@@ -509,7 +525,7 @@ class MainScreen(Screen):
         paths = self._get_selected_paths()
         if not paths:
             return
-        self.query_one("#scan-progress", Static).update(f"  正在计算项目数并永久删除...")
+        self.query_one("#scan-progress", Static).update("  正在计算项目数并永久删除...")
         self._do_permanent_delete(paths)
 
     @work(exclusive=True, thread=True)
@@ -717,7 +733,10 @@ class MainScreen(Screen):
             self.notify("请先等待扫描完成", severity="warning")
             return
 
-        has_filter = self._search_query or self._filter_type or self._filter_size or self._filter_time
+        has_filter = (
+            self._search_query or self._filter_type
+            or self._filter_size or self._filter_time
+        )
         if not has_filter:
             self.notify("请先设置搜索或筛选条件", severity="warning")
             return

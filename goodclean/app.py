@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from textual.app import App
 
-from .screens import WelcomeScreen, MainScreen
+from .screens import MainScreen, WelcomeScreen
 
 
 class GoodCleanApp(App):

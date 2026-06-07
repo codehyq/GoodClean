@@ -7,19 +7,15 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 from .analyzer import format_size
 from .constants import (
     JUNK_DIRNAMES,
-    JUNK_EXTENSIONS,
-    JUNK_FILENAMES,
     SIZE_MB,
 )
-from .models import DirInfo, FileInfo, ScanResult
+from .models import DirInfo, ScanResult
 
 
 @dataclass
@@ -62,7 +58,7 @@ def generate_cleanup_suggestions(result: ScanResult) -> list[CleanupSuggestion]:
     return suggestions
 
 
-def get_suggestion_summary(suggestions: list[CleanupSuggestion]) -> dict:
+def get_suggestion_summary(suggestions: list[CleanupSuggestion]) -> dict[str, int]:
     """计算建议汇总信息。"""
     safe = [s for s in suggestions if s.risk == "safe"]
     caution = [s for s in suggestions if s.risk == "caution"]

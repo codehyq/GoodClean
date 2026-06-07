@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Optional
-
 from rich.text import Text
-from textual.binding import Binding
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Tree
@@ -50,10 +47,10 @@ class DirectoryTree(Widget):
     selected_path: reactive[str] = reactive("")
     selected_paths: reactive[set[str]] = reactive(set, init=False)
 
-    def __init__(self, root_dir: Optional[DirInfo] = None, **kwargs):
+    def __init__(self, root_dir: DirInfo | None = None, **kwargs):
         super().__init__(**kwargs)
         self._root_dir = root_dir
-        self._tree: Optional[SelectableTree] = None
+        self._tree: SelectableTree | None = None
         self.selected_paths = set()
         self._sort_mode = "size"
 
@@ -171,7 +168,7 @@ class DirectoryTree(Widget):
         if event.node.data:
             self.selected_path = event.node.data
 
-    def _find_dir(self, dir_info: Optional[DirInfo], path: str) -> Optional[DirInfo]:
+    def _find_dir(self, dir_info: DirInfo | None, path: str) -> DirInfo | None:
         """在目录树中查找指定路径的 DirInfo"""
         if dir_info is None:
             return None
@@ -188,7 +185,6 @@ class DirectoryTree(Widget):
         if not self._tree or not self._root_dir:
             return False
 
-        import os
         from pathlib import Path
 
         # 如果目标就是根目录
@@ -271,7 +267,7 @@ class DirectoryTree(Widget):
             if self._tree:
                 self._tree.refresh()
 
-    def _collect_all_paths(self, dir_info: Optional[DirInfo]) -> set[str]:
+    def _collect_all_paths(self, dir_info: DirInfo | None) -> set[str]:
         """递归收集所有目录路径"""
         paths: set[str] = set()
         if dir_info is None:

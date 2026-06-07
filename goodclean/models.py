@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass
@@ -21,7 +20,7 @@ class FileInfo:
     file_type: str = ""  # 文件类型分类（通过扩展名或文件头识别）
 
     @classmethod
-    def from_path(cls, path: str | Path) -> Optional["FileInfo"]:
+    def from_path(cls, path: str | Path) -> FileInfo | None:
         """从文件路径创建 FileInfo"""
         try:
             p = Path(path)
@@ -45,7 +44,7 @@ class DirInfo:
     total_size: int = 0
     file_count: int = 0
     dir_count: int = 0
-    children: list["DirInfo"] = field(default_factory=list)
+    children: list[DirInfo] = field(default_factory=list)
     files: list[FileInfo] = field(default_factory=list)
     has_permission_error: bool = False
     is_symlink: bool = False
@@ -56,7 +55,7 @@ class DirInfo:
         """目录深度"""
         return self.path.count(os.sep)
 
-    def add_child_dir(self, child: "DirInfo") -> None:
+    def add_child_dir(self, child: DirInfo) -> None:
         """添加子目录并更新统计"""
         self.children.append(child)
         self.total_size += child.total_size
@@ -79,7 +78,7 @@ class ScanResult:
     total_size: int = 0
     total_files: int = 0
     total_dirs: int = 0
-    root_dir: Optional[DirInfo] = None
+    root_dir: DirInfo | None = None
     top_dirs: list[DirInfo] = field(default_factory=list)
     large_files: list[FileInfo] = field(default_factory=list)
     junk_files: list[FileInfo] = field(default_factory=list)

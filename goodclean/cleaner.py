@@ -6,10 +6,10 @@ import logging
 import os
 import shutil
 import stat
-import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable
+from typing import Any
 
 from send2trash import send2trash
 
@@ -179,7 +179,9 @@ def permanent_delete(
     return result
 
 
-def _handle_remove_error(func, path, exc_info) -> None:
+def _handle_remove_error(
+    func: Callable[[str], None], path: str, exc_info: tuple[Any, ...],
+) -> None:
     """处理删除错误，尝试修改权限后重试"""
     exc_type = exc_info[0]
     if exc_type is PermissionError:

@@ -176,6 +176,5 @@ KNOWN_EXTENSIONS = {
     ".py", ".js", ".ts", ".java", ".c", ".cpp", ".h", ".rs", ".go",
     ".log", ".ini", ".cfg", ".conf",
     # 垃圾/临时
-    ".tmp", ".temp", ".bak", ".swp", ".swo", ".log",
-    ".thumbs.db", ".ds_store",
+    ".tmp", ".temp", ".bak", ".swp", ".swo", ".thumbs.db", ".ds_store",
 }

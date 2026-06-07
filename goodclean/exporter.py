@@ -4,16 +4,13 @@ from __future__ import annotations
 
 import csv
 import json
-import os
 from datetime import datetime
 from pathlib import Path
-from typing import TextIO
 
 from jinja2 import Template
 
 from .analyzer import format_size
-from .models import DirInfo, FileInfo, ScanResult
-
+from .models import ScanResult
 
 # ──────────────────── HTML 报告模板 ────────────────────
 _HTML_TEMPLATE = Template(
@@ -214,26 +211,26 @@ def export_csv(result: ScanResult, output_path: str) -> str:
         # 写入大文件
         writer.writerow(["大文件排行 (>100MB)"])
         writer.writerow(["排名", "文件名", "路径", "大小", "扩展名"])
-        for i, f in enumerate(result.large_files[:100], 1):
+        for i, file_info in enumerate(result.large_files[:100], 1):
             writer.writerow([
                 i,
-                f.name,
-                f.path,
-                format_size(f.size),
-                f.extension,
+                file_info.name,
+                file_info.path,
+                format_size(file_info.size),
+                file_info.extension,
             ])
         writer.writerow([])
 
         # 写入垃圾文件
         writer.writerow(["垃圾文件"])
         writer.writerow(["文件名", "路径", "大小", "扩展名", "原因"])
-        for f in result.junk_files[:200]:
+        for file_info in result.junk_files[:200]:
             writer.writerow([
-                f.name,
-                f.path,
-                format_size(f.size),
-                f.extension,
-                f.junk_reason,
+                file_info.name,
+                file_info.path,
+                format_size(file_info.size),
+                file_info.extension,
+                file_info.junk_reason,
             ])
 
     return output_path

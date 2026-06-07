@@ -28,10 +28,10 @@ def get_presets() -> list[tuple[str, str]]:
     home = Path.home()
     presets.extend([
         (f"当前目录 ({os.getcwd()})", os.getcwd()),
-        (f"C 盘 (C:\\)", "C:\\"),
+        ("C 盘 (C:\\)", "C:\\"),
     ])
     if os.path.exists("D:\\"):
-        presets.append((f"D 盘 (D:\\)", "D:\\"))
+        presets.append(("D 盘 (D:\\)", "D:\\"))
     presets.extend([
         (f"用户目录 ({home})", str(home)),
         (f"桌面 ({home / 'Desktop'})", str(home / "Desktop")),

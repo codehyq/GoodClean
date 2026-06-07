@@ -64,8 +64,8 @@ def main() -> None:
 
 def _show_cache_info() -> None:
     """显示缓存信息"""
-    from .cache import list_all_caches
     from .analyzer import format_size
+    from .cache import list_all_caches
 
     caches = list_all_caches()
     if not caches:

@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 from rich.text import Text
 from textual.events import Click
 from textual.message import Message
-from textual.reactive import reactive
 from textual.widget import Widget
 
 from ..analyzer import format_size
@@ -289,7 +287,7 @@ class SizeBar(Widget):
 
             # 百分比
             size_pct = (size / total_size * 100) if total_size > 0 else 0
-            count_pct = (count / total_count * 100) if total_count > 0 else 0
+            _count_pct = (count / total_count * 100) if total_count > 0 else 0
 
             # 条形长度
             bar_len = int((size / self._max_size) * bar_width) if self._max_size > 0 else 0
@@ -302,7 +300,7 @@ class SizeBar(Widget):
             size_str = format_size(size).rjust(8)
             count_str = f"{count}个".rjust(6)
 
-            text.append(f"  ", style="")
+            text.append("  ", style="")
             text.append(f"{label}", style=f"bold {color}")
             text.append(f" {bar} ", style=color)
             text.append(f"{size_str}", style="bold")
@@ -352,9 +350,18 @@ class SizeBar(Widget):
             junk_mark = "♻" if is_junk else " "
             name_style = style or "bold"
 
-            text.append(f"{highlight_mark}{junk_mark}", style="bold yellow" if is_highlighted else "bold green" if is_junk else "")
+            mark_style = (
+                "bold yellow" if is_highlighted
+                else "bold green" if is_junk
+                else ""
+            )
+            text.append(f"{highlight_mark}{junk_mark}", style=mark_style)
             text.append(f" {display_name} ", style=name_style)
-            text.append(f"{bar}", style="green" if not is_highlighted else "bold white on dark_green")
+            bar_style = (
+                "green" if not is_highlighted
+                else "bold white on dark_green"
+            )
+            text.append(f"{bar}", style=bar_style)
             text.append(f" {size_str}", style="dim")
             if parent_str:
                 text.append(parent_str, style="dim cyan")

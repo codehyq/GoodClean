@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from .constants import FILE_SIGNATURES, KNOWN_EXTENSIONS
 
-
 # 读取文件头的最大字节数（TAR ustar 在偏移 257）
 _HEADER_READ_SIZE = 261
 
@@ -31,7 +30,7 @@ _EXT_TO_CATEGORY: dict[str, str] = {
     ".ods": "文档", ".odp": "文档", ".rtf": "文档", ".txt": "文档",
     ".md": "文档",
     # 代码
-    ".py": "代码", ".js": "代码", ".ts": "代码", ".java": "代码",
+    ".py": "代码", ".js": "代码", ".java": "代码",
     ".c": "代码", ".cpp": "代码", ".h": "代码", ".rs": "代码",
     ".go": "代码", ".rb": "代码", ".php": "代码", ".swift": "代码",
     ".kt": "代码", ".scala": "代码", ".r": "代码", ".m": "代码",

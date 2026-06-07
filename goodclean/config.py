@@ -50,8 +50,8 @@ def load_config() -> dict[str, Any]:
         if _config_cache is not None and mtime == _config_mtime:
             return _config_cache.copy()
 
-        with open(config_file, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        with open(config_file, encoding="utf-8") as f:
+            data: dict[str, Any] = json.load(f)
 
         _config_cache = data
         _config_mtime = mtime
@@ -81,7 +81,7 @@ def get_last_scan_path() -> str | None:
     """获取上次扫描路径"""
     config = load_config()
     path = config.get("last_scan_path")
-    if path and os.path.exists(path):
+    if isinstance(path, str) and os.path.exists(path):
         return path
     return None
 
@@ -113,7 +113,7 @@ def get_sort_mode() -> str:
     """获取排序模式，默认 size"""
     config = load_config()
     mode = config.get("sort_mode")
-    if mode in SORT_MODES:
+    if isinstance(mode, str) and mode in SORT_MODES:
         return mode
     # 兼容旧配置
     old = config.get("sort_by_size")
@@ -152,7 +152,7 @@ def _get_scan_result_file() -> Path:
     return _get_config_dir() / "last_scan.json.gz"
 
 
-def _dict_to_dir_info(data: dict) -> Any:
+def _dict_to_dir_info(data: dict[str, Any]) -> Any:
     """从字典重建 DirInfo"""
     from .models import DirInfo, FileInfo
 

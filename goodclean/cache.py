@@ -11,7 +11,7 @@ import logging
 import pickle
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any
 
 from .models import ScanResult
 
@@ -28,7 +28,7 @@ def get_cache_path(root_path: str) -> Path:
     return CACHE_DIR / f"{path_hash}.pkl"
 
 
-def save_cache(result: ScanResult) -> Optional[Path]:
+def save_cache(result: ScanResult) -> Path | None:
     """将扫描结果保存到缓存文件（pickle 二进制格式）"""
     try:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
@@ -57,7 +57,7 @@ def save_cache(result: ScanResult) -> Optional[Path]:
         return None
 
 
-def load_cache(root_path: str, max_age_hours: int = 24) -> Optional[ScanResult]:
+def load_cache(root_path: str, max_age_hours: int = 24) -> ScanResult | None:
     """从缓存文件加载扫描结果
 
     Args:
@@ -95,7 +95,7 @@ def load_cache(root_path: str, max_age_hours: int = 24) -> Optional[ScanResult]:
         return None
 
 
-def clear_cache(root_path: Optional[str] = None) -> int:
+def clear_cache(root_path: str | None = None) -> int:
     """清除缓存
 
     Args:
@@ -121,7 +121,7 @@ def clear_cache(root_path: Optional[str] = None) -> int:
         return count
 
 
-def list_all_caches() -> list[dict]:
+def list_all_caches() -> list[dict[str, Any]]:
     """列出所有缓存的摘要信息"""
     if not CACHE_DIR.exists():
         return []
@@ -149,7 +149,7 @@ def list_all_caches() -> list[dict]:
     return caches
 
 
-def get_cache_info(root_path: str) -> Optional[dict]:
+def get_cache_info(root_path: str) -> dict[str, Any] | None:
     """获取缓存信息（不加载完整 ScanResult，只读取 meta）"""
     try:
         cache_path = get_cache_path(root_path)

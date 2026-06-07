@@ -11,9 +11,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Callable, Optional
 
 from .models import DirInfo, FileInfo
 
@@ -30,7 +30,7 @@ class DirectoryScanner:
         self.root_path = Path(root_path).resolve()
         self._visited: set[str] = set()
         self._cancelled = False
-        self._on_progress: Optional[Callable[[int, int], None]] = None
+        self._on_progress: Callable[[int, int], None] | None = None
         self._scanned_dirs = 0
         self._permission_errors = 0
         # 增量扫描：旧目录数据 {路径: DirInfo}
@@ -281,7 +281,7 @@ def _scan_entries(path: str) -> list[tuple[str, str, bool]]:
     return entries
 
 
-def _scan_file(path: str, name: str) -> Optional[FileInfo]:
+def _scan_file(path: str, name: str) -> FileInfo | None:
     """在线程池中扫描单个文件"""
     try:
         stat = os.stat(path)

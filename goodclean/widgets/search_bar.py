@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Callable, Optional
+import time
+from collections.abc import Callable
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Input, Select, Static
@@ -65,7 +66,7 @@ class SearchBar(Widget):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._on_search_change: Optional[Callable[[str, str, str, str], None]] = None
+        self._on_search_change: Callable[[str, str, str, str], None] | None = None
 
     def compose(self) -> ComposeResult:
         with Horizontal():
@@ -178,9 +179,6 @@ class SearchBar(Widget):
         time_select.value = ""
 
         self._notify_change()
-
-
-import time
 
 
 def matches_search_filter(
