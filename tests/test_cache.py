@@ -27,7 +27,7 @@ class TestGetCachePath:
     def test_returns_path(self):
         p = get_cache_path("/some/path")
         assert isinstance(p, Path)
-        assert p.suffix == ".json"
+        assert p.suffix == ".pkl"
 
     def test_same_path_same_hash(self):
         p1 = get_cache_path("/same")
@@ -55,14 +55,14 @@ class TestSaveAndLoadCache:
             result = _make_result("/test/expired")
             save_cache(result)
 
-            # 手动修改 scan_time 为 48 小时前
+            # 手动修改 scan_time 为 48 小时前（pickle 二进制格式）
             cache_path = get_cache_path("/test/expired")
-            import json
-            with open(cache_path, encoding="utf-8") as f:
-                data = json.load(f)
+            import pickle
+            with open(cache_path, "rb") as f:
+                data = pickle.load(f)
             data["scan_time"] = time.time() - 48 * 3600
-            with open(cache_path, "w", encoding="utf-8") as f:
-                json.dump(data, f)
+            with open(cache_path, "wb") as f:
+                pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
 
             loaded = load_cache("/test/expired")
             assert loaded is None

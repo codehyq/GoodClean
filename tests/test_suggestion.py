@@ -68,6 +68,41 @@ class TestGenerateCleanupSuggestions:
         assert empty_suggestions[0].item_count == 2
 
 
+class TestDuplicateSuggestions:
+    def test_real_duplicates_detected(self, tmp_path):
+        """内容相同的文件（即使不同名）应被检测为重复"""
+        root = tmp_path / "dup_test"
+        root.mkdir()
+        content = b"duplicate payload " * 200
+        (root / "file_a.bin").write_bytes(content)
+        (root / "file_b.bin").write_bytes(content)
+
+        root_info = _build_dir(root)
+        result = analyze(root_info, str(root))
+        suggestions = generate_cleanup_suggestions(result)
+        dup_suggestions = [s for s in suggestions if "重复" in s.name]
+        assert len(dup_suggestions) == 1
+        assert dup_suggestions[0].item_count == 1  # 1 个可删除副本
+
+    def test_same_name_size_different_content_not_duplicate(self, tmp_path):
+        """同名同大小但内容不同的文件不应被误判为重复"""
+        root = tmp_path / "false_dup"
+        root.mkdir()
+        # 两个 24KB 文件，同名（通过不同子目录实现），大小相同，内容不同
+        sub_a = root / "a"
+        sub_a.mkdir()
+        sub_b = root / "b"
+        sub_b.mkdir()
+        (sub_a / "data.bin").write_bytes(b"A" * 24576)
+        (sub_b / "data.bin").write_bytes(b"B" * 24576)
+
+        root_info = _build_dir(root)
+        result = analyze(root_info, str(root))
+        suggestions = generate_cleanup_suggestions(result)
+        dup_suggestions = [s for s in suggestions if "重复" in s.name]
+        assert len(dup_suggestions) == 0
+
+
 class TestGetSuggestionSummary:
     def test_summary_counts(self, scan_result):
         suggestions = generate_cleanup_suggestions(scan_result)

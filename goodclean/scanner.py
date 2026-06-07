@@ -9,12 +9,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Optional
 
 from .models import DirInfo, FileInfo
+
+logger = logging.getLogger(__name__)
 
 # 并行扫描的线程池大小
 MAX_WORKERS = 8
@@ -96,7 +99,8 @@ class DirectoryScanner:
             self._permission_errors += 1
             self._report_progress()
             return
-        except OSError:
+        except OSError as exc:
+            logger.debug("扫描目录失败 %s: %s", dir_info.path, exc)
             return
 
         self._scanned_dirs += 1
@@ -117,8 +121,8 @@ class DirectoryScanner:
                     )
                     if file_info:
                         dir_info.add_file(file_info)
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.debug("扫描文件失败 %s: %s", entry_path, exc)
 
         # 并行扫描所有子目录
         if child_dirs:
@@ -153,7 +157,8 @@ class DirectoryScanner:
             self._permission_errors += 1
             self._report_progress()
             return
-        except OSError:
+        except OSError as exc:
+            logger.debug("扫描目录失败 %s: %s", dir_info.path, exc)
             return
 
         self._scanned_dirs += 1
@@ -186,10 +191,10 @@ class DirectoryScanner:
                             modified_time=stat.st_mtime,
                         )
                         dir_info.add_file(file_info)
-                    except OSError:
-                        pass
-            except OSError:
-                pass
+                    except OSError as exc:
+                        logger.debug("获取文件信息失败 %s: %s", entry.path, exc)
+            except OSError as exc:
+                logger.debug("判断条目类型失败 %s: %s", entry.path, exc)
 
         for child in child_dirs:
             if self._cancelled:
@@ -200,7 +205,7 @@ class DirectoryScanner:
     # ==================== 增量扫描辅助 ====================
 
     def _is_dir_unchanged(self, dir_info: DirInfo) -> bool:
-        """检查目录是否有变化（基于文件/子目录数量和修改时间）"""
+        """检查目录是否有变化（基于修改时间 + 条目数量联合判断）"""
         if dir_info.path not in self._old_dirs:
             return False
 
@@ -208,12 +213,13 @@ class DirectoryScanner:
             stat = os.stat(dir_info.path)
             old = self._old_dirs[dir_info.path]
 
-            # 简单策略：比较文件数量和子目录数量
-            # 这对于大多数场景足够了
+            # 联合判断：修改时间变化 → 必然有变化
+            if stat.st_mtime != old.modified_time:
+                return False
+
+            # 修改时间未变 → 再比较条目数量
             current_entries = len(os.listdir(dir_info.path))
             old_entries = old.file_count + old.dir_count
-
-            # 如果条目数量相同，认为目录结构未变
             return current_entries == old_entries
         except OSError:
             return False

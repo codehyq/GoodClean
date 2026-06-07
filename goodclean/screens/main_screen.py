@@ -155,6 +155,8 @@ class MainScreen(Screen):
         self._showing_suggestions = False
         self._current_suggestions: list[CleanupSuggestion] = []
         self._current_scan_use_cache: bool = use_cache
+        self._search_timer = None
+        self._search_cache: dict[tuple, list[FileInfo]] = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -375,9 +377,21 @@ class MainScreen(Screen):
         self._filter_type = filter_type
         self._filter_size = filter_size
         self._filter_time = filter_time
-        self._update_filtered_view()
+
+        # 取消上一次的防抖定时器
+        if self._search_timer:
+            self._search_timer.stop()
+
+        has_filter = query or filter_type or filter_size or filter_time
+        if not has_filter:
+            self._update_filtered_view()
+            return
+
+        # 防抖：输入停止 300ms 后再执行搜索
+        self._search_timer = self.set_timer(0.3, self._start_search_work)
 
     def _update_filtered_view(self) -> None:
+        """更新筛选视图。无搜索条件时同步清理；有搜索条件时触发后台搜索。"""
         if not self._scan_result or not self._root_dir:
             return
         has_filter = self._search_query or self._filter_type or self._filter_size or self._filter_time
@@ -388,8 +402,36 @@ class MainScreen(Screen):
             self._matched_files = []
             return
 
-        matched_files = []
-        self._collect_filtered_files(self._root_dir, matched_files)
+        self._start_search_work()
+
+    def _start_search_work(self) -> None:
+        """启动后台搜索任务（由防抖定时器或 _update_filtered_view 调用）"""
+        self._do_search_async()
+
+    @work(exclusive=True, thread=True)
+    def _do_search_async(self) -> None:
+        """在后台线程执行文件搜索，避免阻塞主线程 UI"""
+        if not self._scan_result or not self._root_dir:
+            return
+        has_filter = self._search_query or self._filter_type or self._filter_size or self._filter_time
+        if not has_filter:
+            return
+
+        key = (self._search_query, self._filter_type, self._filter_size, self._filter_time)
+        matched = self._search_cache.get(key)
+        if matched is None:
+            matched = []
+            self._collect_filtered_files(self._root_dir, matched)
+            self._search_cache[key] = matched
+            # 简单 FIFO：缓存超过 20 条时淘汰最早的一条
+            if len(self._search_cache) > 20:
+                oldest = next(iter(self._search_cache))
+                del self._search_cache[oldest]
+
+        self.app.call_from_thread(self._apply_search_results, matched)
+
+    def _apply_search_results(self, matched_files: list[FileInfo]) -> None:
+        """在主线程应用搜索结果并更新 UI"""
         self._matched_files = matched_files
         self._matched_file_index = 0
 

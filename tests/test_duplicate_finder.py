@@ -58,6 +58,45 @@ class TestFindDuplicates:
         dupes = find_duplicates(root, min_size=100)
         assert len(dupes) == 0
 
+    def test_large_file_duplicates(self, tmp_path):
+        """大于 16KB 的真正重复文件应被正确识别"""
+        content = b"X" * 50000
+        (tmp_path / "big_a.bin").write_bytes(content)
+        (tmp_path / "big_b.bin").write_bytes(content)
+
+        root = _build_dir(tmp_path)
+        dupes = find_duplicates(root, min_size=1)
+        assert len(dupes) == 1
+        assert len(dupes[0]) == 2
+
+    def test_head_tail_collision_not_duplicate(self, tmp_path):
+        """头尾相同但中间不同的大文件不应被误判为重复"""
+        # 构造两个 24KB 文件：前 8KB 和后 8KB 相同，中间 8KB 不同
+        head = b"HEAD" * 2048
+        mid_a = b"MIDDLE_A" * 1024
+        mid_b = b"MIDDLE_B" * 1024
+        tail = b"TAIL" * 2048
+
+        (tmp_path / "collide_a.bin").write_bytes(head + mid_a + tail)
+        (tmp_path / "collide_b.bin").write_bytes(head + mid_b + tail)
+
+        root = _build_dir(tmp_path)
+        dupes = find_duplicates(root, min_size=1)
+        # 头尾哈希会碰撞，但全量哈希应排除它们
+        assert len(dupes) == 0
+
+    def test_three_layer_hash(self, tmp_path):
+        """验证三层哈希：大小不同直接排除；大小相同但内容不同排除；真正重复保留"""
+        (tmp_path / "same_1.bin").write_bytes(b"D" * 30000)
+        (tmp_path / "same_2.bin").write_bytes(b"D" * 30000)
+        (tmp_path / "diff.bin").write_bytes(b"E" * 30000)
+
+        root = _build_dir(tmp_path)
+        dupes = find_duplicates(root, min_size=1)
+        assert len(dupes) == 1
+        names = {f.name for f in dupes[0]}
+        assert names == {"same_1.bin", "same_2.bin"}
+
 
 class TestDuplicateStats:
     def test_stats(self, tmp_path):

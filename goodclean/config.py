@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import gzip
 import json
+import logging
 import os
 import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
+
+# 模块级配置缓存，避免频繁读盘
+_config_cache: dict[str, Any] | None = None
+_config_mtime: float = 0.0
 
 
 def _get_config_dir() -> Path:
@@ -31,26 +38,43 @@ def _ensure_config_dir() -> None:
 
 
 def load_config() -> dict[str, Any]:
-    """加载配置，返回配置字典"""
+    """加载配置，返回配置字典（带模块级缓存）"""
+    global _config_cache, _config_mtime
+
     config_file = _get_config_file()
     if not config_file.exists():
         return {}
+
     try:
+        mtime = config_file.stat().st_mtime
+        if _config_cache is not None and mtime == _config_mtime:
+            return _config_cache.copy()
+
         with open(config_file, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
+            data = json.load(f)
+
+        _config_cache = data
+        _config_mtime = mtime
+        return data.copy()
+    except Exception as exc:
+        logger.warning("加载配置失败: %s", exc)
         return {}
 
 
 def save_config(config: dict[str, Any]) -> None:
     """保存配置"""
+    global _config_cache, _config_mtime
+
     _ensure_config_dir()
     config_file = _get_config_file()
     try:
         with open(config_file, "w", encoding="utf-8") as f:
             json.dump(config, f, ensure_ascii=False, indent=2)
-    except Exception:
-        pass
+
+        _config_cache = config.copy()
+        _config_mtime = config_file.stat().st_mtime
+    except Exception as exc:
+        logger.warning("保存配置失败: %s", exc)
 
 
 def get_last_scan_path() -> str | None:
@@ -207,7 +231,8 @@ def load_scan_result() -> Any | None:
         for f_data in data.get("junk_files", []):
             result.junk_files.append(FileInfo(**f_data))
         return result
-    except Exception:
+    except Exception as exc:
+        logger.warning("加载扫描结果失败: %s", exc)
         return None
 
 

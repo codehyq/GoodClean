@@ -13,11 +13,16 @@ from .models import DirInfo, FileInfo
 
 def find_duplicates(root_dir: DirInfo, min_size: int = 1024) -> list[list[FileInfo]]:
     """查找重复文件
-    
+
+    采用三层哈希策略确保正确性：
+    1. 按文件大小分组（快速排除不同大小）
+    2. 对头尾采样计算 preview_hash（快速预筛）
+    3. 对 preview_hash 碰撞的文件计算 full_hash（全量确认）
+
     Args:
         root_dir: 根目录信息
         min_size: 最小文件大小（字节），默认 1KB，过小的文件不检测
-    
+
     Returns:
         重复文件组列表，每组包含相同内容的文件
     """
@@ -25,22 +30,33 @@ def find_duplicates(root_dir: DirInfo, min_size: int = 1024) -> list[list[FileIn
     size_groups: dict[int, list[FileInfo]] = defaultdict(list)
     _collect_files_by_size(root_dir, size_groups, min_size)
 
-    # 第二步：对大小相同的文件计算哈希
-    hash_groups: dict[str, list[FileInfo]] = defaultdict(list)
+    # 第二步：对头尾采样计算 preview_hash
+    preview_groups: dict[str, list[FileInfo]] = defaultdict(list)
 
     for size, files in size_groups.items():
-        # 只有 2 个以上文件才需要检测
         if len(files) < 2:
             continue
 
         for f in files:
-            file_hash = _compute_file_hash(f.path)
-            if file_hash:
-                hash_groups[file_hash].append(f)
+            preview_hash = _compute_preview_hash(f.path)
+            if preview_hash:
+                preview_groups[preview_hash].append(f)
 
-    # 第三步：筛选出真正的重复文件（每组 2 个以上）
+    # 第三步：对 preview_hash 相同的文件计算 full_hash 确认
+    full_hash_groups: dict[str, list[FileInfo]] = defaultdict(list)
+
+    for preview_hash, files in preview_groups.items():
+        if len(files) < 2:
+            continue
+
+        for f in files:
+            full_hash = _compute_full_hash(f.path)
+            if full_hash:
+                full_hash_groups[full_hash].append(f)
+
+    # 第四步：筛选出真正的重复文件（每组 2 个以上）
     duplicates = []
-    for file_hash, files in hash_groups.items():
+    for file_hash, files in full_hash_groups.items():
         if len(files) >= 2:
             # 按修改时间排序，保留最新的
             files.sort(key=lambda f: f.modified_time, reverse=True)
@@ -68,11 +84,11 @@ def _collect_files_by_size(
         _collect_files_by_size(child, size_groups, min_size)
 
 
-def _compute_file_hash(file_path: str, chunk_size: int = 8192) -> Optional[str]:
-    """计算文件的 MD5 哈希值
-    
-    为了效率，只读取文件的前 8KB 和最后 8KB 来计算哈希
-    对于大文件，这足以区分大多数不同的文件
+def _compute_preview_hash(file_path: str, chunk_size: int = 8192) -> Optional[str]:
+    """计算文件的预览哈希（快速预筛）
+
+    小文件（≤16KB）直接全量读取；大文件读取头尾各 8KB 采样。
+    返回的哈希仅用于初步分组，**不能**作为唯一判据。
     """
     try:
         file_size = os.path.getsize(file_path)
@@ -89,6 +105,25 @@ def _compute_file_hash(file_path: str, chunk_size: int = 8192) -> Optional[str]:
             tail = f.read(chunk_size)
             return hashlib.md5(head + tail).hexdigest()
 
+    except (OSError, PermissionError):
+        return None
+
+
+def _compute_full_hash(file_path: str, chunk_size: int = 65536) -> Optional[str]:
+    """计算文件的完整 MD5 哈希（全量确认）
+
+    分块读取文件内容，避免一次性加载大文件到内存。
+    仅在 preview_hash 发生碰撞时调用，确保重复判断的准确性。
+    """
+    try:
+        hasher = hashlib.md5()
+        with open(file_path, "rb") as f:
+            while True:
+                chunk = f.read(chunk_size)
+                if not chunk:
+                    break
+                hasher.update(chunk)
+        return hasher.hexdigest()
     except (OSError, PermissionError):
         return None
 

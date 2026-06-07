@@ -122,7 +122,7 @@ class TestTrashFiles:
 
 class TestProgressCallback:
     def test_permanent_delete_progress(self, tmp_path):
-        """永久删除进度回调"""
+        """永久删除进度回调：目录直接删除，回调基于原始路径数"""
         root = tmp_path / "prog_dir"
         root.mkdir()
         (root / "a.txt").write_text("a")
@@ -134,13 +134,13 @@ class TestProgressCallback:
             progress_calls.append((current, total, path, freed))
 
         permanent_delete([str(root)], on_progress=on_progress)
-        assert len(progress_calls) > 0
+        assert len(progress_calls) == 1
         # 最后一个调用应该是完成的
         assert progress_calls[-1][0] == progress_calls[-1][1]
 
     @patch("goodclean.cleaner.send2trash")
     def test_trash_progress(self, mock_send2trash, tmp_path):
-        """回收站进度回调"""
+        """回收站进度回调：目录直接删除，回调基于原始路径数"""
         root = tmp_path / "prog_dir"
         root.mkdir()
         (root / "a.txt").write_text("a")
@@ -151,4 +151,43 @@ class TestProgressCallback:
             progress_calls.append((current, total, path, freed))
 
         trash_files([str(root)], on_progress=on_progress)
-        assert len(progress_calls) > 0
+        assert len(progress_calls) == 1
+
+
+class TestDirectoryDeleteLogic:
+    def test_trash_directory_once(self, tmp_path):
+        """目录只应被 send2trash 一次，不应展开后二次操作"""
+        root = tmp_path / "trash_dir"
+        root.mkdir()
+        (root / "sub").mkdir()
+        (root / "sub" / "file.txt").write_text("nested")
+
+        result = trash_files([str(root)])
+        assert result.success_count == 1
+        assert not root.exists()
+
+    def test_permanent_delete_nested_dir(self, tmp_path):
+        """永久删除应递归清理嵌套目录"""
+        root = tmp_path / "del_dir"
+        root.mkdir()
+        (root / "a.txt").write_text("a")
+        sub = root / "sub"
+        sub.mkdir()
+        (sub / "b.txt").write_text("b")
+
+        result = permanent_delete([str(root)])
+        assert result.success_count == 1
+        assert not root.exists()
+
+    def test_delete_mixed_paths(self, tmp_path):
+        """同时删除文件和目录"""
+        f = tmp_path / "file.txt"
+        f.write_text("hello")
+        d = tmp_path / "dir"
+        d.mkdir()
+        (d / "inner.txt").write_text("inner")
+
+        result = permanent_delete([str(f), str(d)])
+        assert result.success_count == 2
+        assert not f.exists()
+        assert not d.exists()

@@ -104,16 +104,13 @@ def trash_files(
 ) -> CleanResult:
     """将文件/目录移到回收站（安全删除），支持进度回调
 
-    对于大目录，会先展开为内部文件列表，逐个 send2trash 以提供进度反馈。
+    文件直接 send2trash；目录交给 send2trash 递归处理，避免手动展开后
+    二次操作外层目录导致的非空目录错误或重复删除。
     """
     result = CleanResult()
-    items = _expand_paths(paths)
-    total = len(items)
+    total = len(paths)
 
-    # 先收集所有需要删除的顶层目录（用于最后删除空目录本身）
-    top_dirs = [p for p in paths if os.path.isdir(p)]
-
-    for i, (path, size) in enumerate(items, start=1):
+    for i, path in enumerate(paths, start=1):
         p = Path(path)
         if not p.exists():
             result.errors.append(f"路径不存在: {path}")
@@ -123,6 +120,7 @@ def trash_files(
             continue
 
         try:
+            size = _get_path_size(p)
             send2trash(str(p))
             result.success_count += 1
             result.freed_bytes += size
@@ -136,23 +134,6 @@ def trash_files(
         if on_progress:
             on_progress(i, total, path, result.freed_bytes)
 
-    # 最后删除顶层目录本身（此时应该是空目录了）
-    for dpath in top_dirs:
-        dp = Path(dpath)
-        if dp.exists() and dp.is_dir():
-            try:
-                # 检查是否为空
-                try:
-                    has_contents = any(os.scandir(dp))
-                except (OSError, StopIteration):
-                    has_contents = False
-                if not has_contents:
-                    send2trash(str(dp))
-                    result.success_count += 1
-                    result.cleaned_paths.append(dpath)
-            except OSError:
-                pass
-
     return result
 
 
@@ -162,16 +143,13 @@ def permanent_delete(
 ) -> CleanResult:
     """永久删除文件/目录（不可恢复），支持进度回调
 
-    对于大目录，逐文件删除以提供实时进度。
+    文件直接删除；目录交给 shutil.rmtree 递归处理，避免手动展开后
+    二次操作外层目录导致的非空目录错误或重复删除。
     """
     result = CleanResult()
-    items = _expand_paths(paths)
-    total = len(items)
+    total = len(paths)
 
-    # 先收集所有需要删除的顶层目录（用于最后删除空目录本身）
-    top_dirs = [p for p in paths if os.path.isdir(p)]
-
-    for i, (path, size) in enumerate(items, start=1):
+    for i, path in enumerate(paths, start=1):
         p = Path(path)
         if not p.exists():
             result.errors.append(f"路径不存在: {path}")
@@ -181,13 +159,9 @@ def permanent_delete(
             continue
 
         try:
+            size = _get_path_size(p)
             if p.is_dir():
-                # 目录在展开后应该是空的（子项已被展开并单独删除）
-                # 但如果 _expand_paths 没展开到（比如权限问题），直接 rmdir
-                try:
-                    p.rmdir()
-                except OSError:
-                    shutil.rmtree(p, onerror=_handle_remove_error)
+                shutil.rmtree(p, onerror=_handle_remove_error)
             else:
                 _remove_file(p)
             result.success_count += 1
@@ -201,17 +175,6 @@ def permanent_delete(
 
         if on_progress:
             on_progress(i, total, path, result.freed_bytes)
-
-    # 最后删除顶层目录本身
-    for dpath in top_dirs:
-        dp = Path(dpath)
-        if dp.exists() and dp.is_dir():
-            try:
-                shutil.rmtree(dp, onerror=_handle_remove_error)
-                result.success_count += 1
-                result.cleaned_paths.append(dpath)
-            except OSError:
-                pass
 
     return result
 

@@ -175,43 +175,35 @@ def _collect_empty_files(di: DirInfo, result: list[CleanupSuggestion]) -> None:
 
 
 def _collect_duplicate_suggestions(di: DirInfo, result: list[CleanupSuggestion]) -> None:
-    """收集重复文件（基于文件名+大小的快速检测，不做 MD5 重算）"""
-    size_map: dict[int, list[FileInfo]] = {}
+    """收集重复文件（基于内容哈希，与 duplicate_finder 标准一致）"""
+    from .duplicate_finder import find_duplicates
 
-    def _scan(d: DirInfo) -> None:
-        for f in d.files:
-            if f.size > 0:
-                size_map.setdefault(f.size, []).append(f)
-        for child in d.children:
-            _scan(child)
+    duplicates = find_duplicates(di, min_size=1024)
+    if not duplicates:
+        return
 
-    _scan(di)
+    # 限制建议数量，避免大目录下性能问题
+    max_groups = 100
+    duplicates = duplicates[:max_groups]
 
-    # 找同名同大小的文件组
-    name_size_map: dict[tuple[str, int], list[FileInfo]] = {}
-    for files in size_map.values():
-        if len(files) > 1:
-            for f in files:
-                key = (f.name, f.size)
-                name_size_map.setdefault(key, []).append(f)
-
+    dup_paths: list[str] = []
     wasted = 0
     dup_count = 0
-    dup_paths: list[str] = []
-    for (name, size), files in name_size_map.items():
-        if len(files) > 1:
-            # 保留第一个，其余为重复
-            dup_paths.extend(f.path for f in files[1:])
-            wasted += size * (len(files) - 1)
-            dup_count += len(files) - 1
+
+    for group in duplicates:
+        # find_duplicates 已按修改时间排序，第一个为保留项
+        for f in group[1:]:
+            dup_paths.append(f.path)
+            wasted += f.size
+            dup_count += 1
 
     if dup_paths:
         result.append(CleanupSuggestion(
-            name=f"同名重复文件 ({dup_count} 个)",
+            name=f"重复文件 ({dup_count} 个)",
             path="(分散在多个位置)",
             size=wasted,
             risk="caution",
-            reason=f"同名同大小的重复副本，可节省 {format_size(wasted)}",
+            reason=f"内容完全相同的重复副本，可节省 {format_size(wasted)}",
             item_count=dup_count,
             is_dir=False,
             paths=dup_paths,

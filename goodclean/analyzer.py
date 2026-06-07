@@ -17,39 +17,52 @@ from .models import DirInfo, FileInfo, ScanResult
 
 
 def analyze(root_dir: DirInfo, root_path: str) -> ScanResult:
-    """分析扫描结果，生成完整报告"""
+    """分析扫描结果，生成完整报告
+
+    使用单次树遍历同时完成垃圾标记、文件分类、目录收集、
+    文件收集和权限错误统计，将分析阶段复杂度从 4×O(N) 降至 1×O(N)。
+    """
     result = ScanResult(root_path=root_path)
     result.root_dir = root_dir
     result.total_size = root_dir.total_size
     result.total_files = root_dir.file_count
     result.total_dirs = root_dir.dir_count
 
-    # 标记垃圾文件
-    _mark_junk_files(root_dir, root_path)
-
-    # 收集所有目录并排序
     all_dirs: list[DirInfo] = []
-    _collect_dirs(root_dir, all_dirs)
-    result.top_dirs = sorted(all_dirs, key=lambda d: d.total_size, reverse=True)[:50]
-
-    # 收集大文件
     all_files: list[FileInfo] = []
-    _collect_files(root_dir, all_files)
+    permission_errors = 0
+
+    def _walk(di: DirInfo) -> None:
+        nonlocal permission_errors
+        # 标记垃圾文件并分类（原 _mark_junk_files 的单层逻辑）
+        dir_name = Path(di.path).name.lower()
+        is_junk_dir = dir_name in JUNK_DIRNAMES
+        for f in di.files:
+            _check_file_junk(f, is_junk_dir)
+            f.file_type = classify_file_type(f.extension, f.path, f.size)
+            all_files.append(f)
+
+        all_dirs.append(di)
+        if di.has_permission_error:
+            permission_errors += 1
+
+        for child in di.children:
+            _walk(child)
+
+    _walk(root_dir)
+
+    result.top_dirs = sorted(all_dirs, key=lambda d: d.total_size, reverse=True)[:50]
     result.large_files = sorted(
         [f for f in all_files if f.size >= LARGE_FILE_THRESHOLD],
         key=lambda f: f.size,
         reverse=True,
     )[:100]
-
-    # 收集垃圾文件
     result.junk_files = sorted(
         [f for f in all_files if f.is_junk],
         key=lambda f: f.size,
         reverse=True,
     )[:200]
-
-    # 统计权限错误
-    result.permission_errors = _count_permission_errors(root_dir)
+    result.permission_errors = permission_errors
 
     return result
 

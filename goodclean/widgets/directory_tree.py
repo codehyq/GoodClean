@@ -14,6 +14,9 @@ from textual.widgets.tree import TreeNode
 from ..analyzer import format_size
 from ..models import DirInfo
 
+# 每层最大显示的子目录节点数，超过时截断并显示提示节点
+_MAX_NODES_PER_LEVEL = 500
+
 
 class SelectableTree(Tree):
     """可选中的 Tree 子类，拦截 Space 键改为选中/取消选中"""
@@ -94,18 +97,25 @@ class DirectoryTree(Widget):
         return dir_info.total_size
 
     def _populate_tree(self, parent_node: TreeNode, dir_info: DirInfo) -> None:
-        """递归填充树节点"""
+        """填充当前节点的直接子目录节点（单层，不递归）"""
         reverse = self._sort_mode != "name"
         sorted_children = sorted(
             dir_info.children, key=self._get_sort_key, reverse=reverse
         )
 
-        for child in sorted_children:
+        # 节点数量限制：防止单层级子目录过多导致 UI 卡顿
+        display_children = sorted_children[:_MAX_NODES_PER_LEVEL]
+        remaining = len(sorted_children) - _MAX_NODES_PER_LEVEL
+
+        for child in display_children:
             label = self._make_label(child)
             child_node = parent_node.add(label, data=child.path)
 
             if child.children or child.files:
                 child_node.add("加载中...", data=None)
+
+        if remaining > 0:
+            parent_node.add(f"... 还有 {remaining} 个目录", data=None)
 
     def _make_label(self, dir_info: DirInfo) -> Text:
         """生成目录标签文本"""
