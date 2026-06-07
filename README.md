@@ -12,14 +12,14 @@ A terminal-based disk cleanup tool built with [Textual](https://github.com/Textu
 - **🔍 Smart Junk Detection** — Extension-based + magic bytes identification with 40+ file signatures
 - **📊 Directory Size Ranking** — Visual bar chart showing top space-consuming directories
 - **📦 Large File Finder** — Configurable threshold (default 100 MB) to surface the biggest files
-- **🔁 Duplicate File Detection** — MD5 hash-based deduplication with two-phase optimization
+- **🔁 Duplicate File Detection** — Three-layer hash strategy (size → head-tail preview → full hash) for safe deduplication
 - **🎨 File Type Analysis** — 16 logical file type categories with colorful visualization
-- **🔎 Search & Filter** — Real-time keyword search with type, size, and modification-time filters
+- **🔎 Search & Filter** — Real-time keyword search with debounce, async execution, result cache, and type/size/time filters
 - **🖱️ Mouse Support** — Click any item in the ranking panel to jump to its location in the directory tree
 - **💡 Cleanup Suggestions** — Smart risk grading (safe / cautious) with one-click safe cleanup
 - **🗑️ Multiple Cleanup Modes** — Send to trash or permanent delete, with progress visualization
 - **📄 Report Export** — Export to HTML, JSON, or CSV formats
-- **💾 Cache System** — 24-hour TTL with incremental scanning
+- **💾 Cache System** — 24-hour TTL pickle-based cache with incremental scanning (mtime + entry count fingerprint)
 - **⚙️ Config Persistence** — Automatically saves last scan path, cache preference, and sort mode
 
 ---
@@ -173,9 +173,9 @@ goodclean/
 ├── app.py                   # TUI coordinator (screen routing)
 ├── scanner.py               # Async directory scanner
 ├── analyzer.py              # Analysis engine (size calculation, stats)
-├── cache.py                 # JSON-based caching with TTL
+├── cache.py                 # Pickle-based caching with TTL
 ├── cleaner.py               # Trash / permanent delete operations
-├── duplicate_finder.py      # MD5-based duplicate detection
+├── duplicate_finder.py      # Three-layer hash duplicate detection
 ├── exporter.py              # Report export (HTML / JSON / CSV)
 ├── file_type_identifier.py  # Magic bytes file type recognition
 ├── suggestion.py            # Cleanup suggestion & risk grading
@@ -219,8 +219,8 @@ pytest
 - `scanner.py` handles all file system traversal with thread-pool parallelism
 - `analyzer.py` processes raw scan results into structured statistics
 - `file_type_identifier.py` reads file headers to identify types by magic bytes
-- `duplicate_finder.py` groups files by MD5 hash in two passes (size filter → full hash)
-- `cache.py` persists scan results as JSON with a 24-hour expiration window
+- `duplicate_finder.py` uses a three-layer hash strategy (size filter → head-tail preview → full hash)
+- `cache.py` persists scan results as pickle with a 24-hour expiration window
 - `suggestion.py` categorizes findings by risk level for safe batch cleanup
 - `config.py` saves user preferences across sessions
 - `widgets/` contains all custom Textual widgets composing the TUI
