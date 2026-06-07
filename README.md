@@ -1,206 +1,206 @@
 # 🧹 GoodClean
 
-A terminal-based disk cleanup tool built with [Textual](https://github.com/Textualize/textual) — scan, analyze, and safely reclaim storage space from your disks, all within a beautiful TUI.
+基于 [Textual](https://github.com/Textualize/textual) 开发的终端磁盘清理工具 —— 在美观的 TUI 界面中扫描、分析并安全回收磁盘空间。
 
-[中文文档](README.zh-CN.md)
-
----
-
-## ✨ Features
-
-- **⚡ Async Parallel Scanning** — ThreadPoolExecutor + asyncio for blazing-fast directory traversal
-- **🔍 Smart Junk Detection** — Extension-based + magic bytes identification with 40+ file signatures
-- **📊 Directory Size Ranking** — Visual bar chart showing top space-consuming directories
-- **📦 Large File Finder** — Configurable threshold (default 100 MB) to surface the biggest files
-- **🔁 Duplicate File Detection** — Three-layer hash strategy (size → head-tail preview → full hash) for safe deduplication
-- **🎨 File Type Analysis** — 16 logical file type categories with colorful visualization
-- **🔎 Search & Filter** — Real-time keyword search with debounce, async execution, result cache, and type/size/time filters
-- **🖱️ Mouse Support** — Click any item in the ranking panel to jump to its location in the directory tree
-- **💡 Cleanup Suggestions** — Smart risk grading (safe / cautious) with one-click safe cleanup
-- **🗑️ Multiple Cleanup Modes** — Send to trash or permanent delete, with progress visualization
-- **📄 Report Export** — Export to HTML, JSON, or CSV formats
-- **💾 Cache System** — 24-hour TTL pickle-based cache with incremental scanning (mtime + entry count fingerprint)
-- **⚙️ Config Persistence** — Automatically saves last scan path, cache preference, and sort mode
+[English Documentation](README.md)
 
 ---
 
-## 🚀 Getting Started
+## ✨ 功能特性
 
-### Prerequisites
+- **⚡ 异步并行扫描** —— ThreadPoolExecutor + asyncio，目录遍历速度快
+- **🔍 智能垃圾识别** —— 基于扩展名 + 文件头魔数（magic bytes）识别，内置 40+ 文件签名
+- **📊 目录大小排行** —— 可视化条形图展示最占空间的目录
+- **📦 大文件发现** —— 可配置阈值（默认 100 MB），快速找出占用空间的大文件
+- **🔁 重复文件检测** —— 三层哈希策略（大小分组 → 头尾预筛 → 全量哈希确认），避免碰撞误删
+- **🎨 文件类型分析** —— 16 种逻辑文件类型分类，彩色可视化展示
+- **🔎 搜索与过滤** —— 实时关键词搜索，支持按类型、大小、修改时间过滤
+- **🖱️ 鼠标支持** —— 点击右侧面板中的任意条目，左侧目录树自动定位到该位置
+- **💡 清理建议** —— 智能风险分级（安全 / 谨慎），支持一键安全清理
+- **🗑️ 多种清理模式** —— 支持移到回收站或永久删除，带进度可视化
+- **📄 报告导出** —— 支持导出 HTML、JSON、CSV 格式
+- **💾 缓存系统** —— 24 小时 TTL，支持增量扫描
+- **⚙️ 配置持久化** —— 自动保存上次扫描路径、缓存偏好、排序方式
+
+---
+
+## 🚀 快速开始
+
+### 环境要求
 
 - Python 3.10+
-- Windows, macOS, or Linux
+- Windows、macOS 或 Linux
 
-> **Note for Windows users:** Run with administrator privileges to avoid permission errors during scanning.
+> **Windows 用户注意：** 建议以管理员身份运行，避免扫描时出现权限错误。
 
-### Installation
+### 安装
 
 ```bash
-git clone https://github.com/yourname/GoodClean.git
+git clone https://github.com/codehyq/GoodClean.git
 cd GoodClean
 pip install -e .
 ```
 
-For development:
+开发环境：
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-### Quick Start
+### 快速启动
 
 ```bash
-# Launch interactive TUI
+# 启动交互式 TUI
 goodclean
 
-# Scan a specific directory directly
+# 直接扫描指定目录
 goodclean D:\
 
-# Or run as a module
+# 或以模块方式运行
 python -m goodclean
 ```
 
 ---
 
-## 🖥️ Command Line Usage
+## 🖥️ 命令行用法
 
 ```
 goodclean [PATH] [OPTIONS]
 ```
 
-| Option | Description |
+| 选项 | 说明 |
 | --- | --- |
-| `PATH` | Directory to scan (optional, shows interactive menu if omitted) |
-| `--no-cache` | Force a fresh scan, bypassing the cache |
-| `--cache-info` | Display cache information and exit |
-| `--export FILE` | Export report to file (`.html` / `.json` / `.csv`) |
-| `--version` | Show version and exit |
+| `PATH` | 要扫描的目录（可选，省略则显示交互菜单） |
+| `--no-cache` | 强制全新扫描，忽略缓存 |
+| `--cache-info` | 显示缓存信息并退出 |
+| `--export FILE` | 导出报告（`.html` / `.json` / `.csv`） |
+| `--version` | 显示版本并退出 |
 
-Examples:
+示例：
 
 ```bash
-# Scan with no cache
+# 不使用缓存扫描
 goodclean D:\ --no-cache
 
-# Export HTML report
+# 导出 HTML 报告
 goodclean C:\Users --export report.html
 
-# Check what's cached
+# 查看缓存状态
 goodclean --cache-info
 ```
 
 ---
 
-## ⌨️ Keyboard Shortcuts
+## ⌨️ 快捷键
 
-### Navigation
+### 导航
 
-| Key | Action |
+| 按键 | 功能 |
 | --- | --- |
-| `↑` / `↓` | Move selection in directory tree |
-| `Enter` | Expand / collapse directory |
-| `Tab` | Switch focus between panels |
-| `q` | Return to welcome screen / quit app |
+| `↑` / `↓` | 在目录树中移动选中项 |
+| `Enter` | 展开 / 折叠目录 |
+| `Tab` | 切换面板焦点 |
+| `q` | 返回欢迎界面 / 退出应用 |
 
-### Sorting & Viewing
+### 排序与查看
 
-| Key | Action |
+| 按键 | 功能 |
 | --- | --- |
-| `s` | Toggle sort mode (size → count → name → modification time) |
-| `t` | Show file type distribution |
-| `e` | Export report |
-| `f` | Find duplicate files |
-| `c` | Show cleanup suggestions |
-| `x` | One-click safe cleanup |
+| `s` | 切换排序模式（大小 → 数量 → 名称 → 修改时间） |
+| `t` | 显示文件类型分布 |
+| `e` | 导出报告 |
+| `f` | 查找重复文件 |
+| `c` | 显示清理建议 |
+| `x` | 一键安全清理 |
 
-### Search & Filter
+### 搜索与过滤
 
-| Key | Action |
+| 按键 | 功能 |
 | --- | --- |
-| `/` | Focus search bar |
-| `Esc` | Clear search & filters |
-| `j` | Jump to next matched file in directory tree |
+| `/` | 聚焦搜索栏 |
+| `Esc` | 清除搜索和过滤条件 |
+| `j` | 在目录树中跳转到下一个匹配的文件 |
 
-### Selection & Cleanup
+### 选择与清理
 
-| Key | Action |
+| 按键 | 功能 |
 | --- | --- |
-| `Space` | Select / deselect directory |
-| `Ctrl+a` | Select all visible directories |
-| `Ctrl+i` | Invert selection |
-| `d` | Move selected to trash |
-| `D` | Permanently delete selected |
-| `a` | Delete all files matching current search/filter |
-| `r` | Rescan directory |
-| `?` | Show help |
+| `Space` | 选中 / 取消选中目录 |
+| `Ctrl+a` | 全选所有可见目录 |
+| `Ctrl+i` | 反选 |
+| `d` | 将选中项移到回收站 |
+| `D` | 永久删除选中项 |
+| `a` | 删除当前搜索/过滤匹配的所有文件 |
+| `r` | 重新扫描目录 |
+| `?` | 显示帮助 |
 
-### Mouse
+### 鼠标
 
-- **Click** any item in the right panel to jump to its location in the directory tree.
+- **点击** 右侧面板中的任意条目，左侧目录树自动展开并定位到对应位置。
 
 ---
 
-## 📸 Usage Scenarios
+## 📸 使用场景
 
-### Scenario 1: Find and delete old log files
+### 场景一：查找并删除旧日志文件
 
-1. Launch `goodclean` and scan your project directory.
-2. Press `/` to focus the search bar, type `log`.
-3. (Optional) Use the **Time** filter to show only files modified over 1 year ago.
-4. Press `a` to delete all matched `.log` files at once.
+1. 启动 `goodclean`，扫描项目目录。
+2. 按 `/` 聚焦搜索栏，输入 `log`。
+3. （可选）使用 **时间** 过滤器，只显示 1 年以上未修改的文件。
+4. 按 `a` 一键删除所有匹配的 `.log` 文件。
 
-### Scenario 2: Clean up Python cache
+### 场景二：清理 Python 缓存
 
-1. Scan your Python project.
-2. Use the **Type** filter to select `.pyc` (Python compiled).
-3. Matched `__pycache__` files are marked with ♻ (safe to clean).
-4. Press `a` to safely remove all of them.
+1. 扫描 Python 项目。
+2. 使用 **类型** 过滤器选择 `.pyc`（Python 编译文件）。
+3. 匹配的 `__pycache__` 文件会标有 ♻（可安全清理）。
+4. 按 `a` 安全移除所有缓存文件。
 
-### Scenario 3: Locate large video files
+### 场景三：定位大视频文件
 
-1. Scan your home directory.
-2. Use the **Size** filter to show files larger than 100 MB.
-3. Use the **Type** filter to select video files.
-4. Click any file in the ranking panel — the directory tree auto-expands to show its location.
+1. 扫描用户目录。
+2. 使用 **大小** 过滤器，只显示大于 100 MB 的文件。
+3. 使用 **类型** 过滤器选择视频文件。
+4. 点击右侧面板中的任意文件 —— 左侧目录树自动展开显示其所在位置。
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ 项目架构
 
 ```
 goodclean/
-├── __main__.py              # Entry point & CLI argument parsing
-├── app.py                   # TUI coordinator (screen routing)
-├── scanner.py               # Async directory scanner
-├── analyzer.py              # Analysis engine (size calculation, stats)
-├── cache.py                 # Pickle-based caching with TTL
-├── cleaner.py               # Trash / permanent delete operations
-├── duplicate_finder.py      # Three-layer hash duplicate detection
-├── exporter.py              # Report export (HTML / JSON / CSV)
-├── file_type_identifier.py  # Magic bytes file type recognition
-├── suggestion.py            # Cleanup suggestion & risk grading
-├── config.py                # Cross-platform config persistence
-├── models.py                # Data models (DirInfo, ScanResult, etc.)
-├── constants.py             # Thresholds, file signatures, junk patterns
+├── __main__.py              # 入口与命令行参数解析
+├── app.py                   # TUI 协调器（屏幕路由）
+├── scanner.py               # 异步目录扫描器
+├── analyzer.py              # 分析引擎（大小计算、统计）
+├── cache.py                 # 基于 JSON 的缓存（TTL）
+├── cleaner.py               # 回收站 / 永久删除操作
+├── duplicate_finder.py      # 基于 MD5 的重复文件检测
+├── exporter.py              # 报告导出（HTML / JSON / CSV）
+├── file_type_identifier.py  # 基于魔数的文件类型识别
+├── suggestion.py            # 清理建议与风险分级
+├── config.py                # 跨平台配置持久化
+├── models.py                # 数据模型（DirInfo、ScanResult 等）
+├── constants.py             # 阈值、文件签名、垃圾文件模式
 ├── screens/
-│   ├── welcome_screen.py    # Welcome screen (path selection, cache toggle)
-│   └── main_screen.py       # Main scan view (tree, search, cleanup actions)
-└── widgets/                 # Custom TUI widgets
-    ├── confirm_dialog.py    # Confirmation dialog with progress
-    ├── directory_tree.py    # Directory tree with keyboard/mouse support
-    ├── file_info.py         # File / directory info panel
-    ├── search_bar.py        # Search & filter bar
-    └── size_bar.py          # Visual size bar with click support
+│   ├── welcome_screen.py    # 欢迎界面（路径选择、缓存开关）
+│   └── main_screen.py       # 主扫描视图（树、搜索、清理操作）
+└── widgets/                 # 自定义 TUI 组件
+    ├── confirm_dialog.py    # 确认对话框（带进度）
+    ├── directory_tree.py    # 目录树（支持键盘/鼠标）
+    ├── file_info.py         # 文件 / 目录信息面板
+    ├── search_bar.py        # 搜索与过滤栏
+    └── size_bar.py          # 可视化大小条（支持点击）
 ```
 
 ---
 
-## 🛠️ Development
+## 🛠️ 开发
 
-### Setup
+### 环境搭建
 
 ```bash
-git clone https://github.com/yourname/GoodClean.git
+git clone https://github.com/codehyq/GoodClean.git
 cd GoodClean
 python -m venv .venv
 .venv\Scripts\activate      # Windows
@@ -208,45 +208,45 @@ source .venv/bin/activate   # macOS / Linux
 pip install -e ".[dev]"
 ```
 
-### Run Tests
+### 运行测试
 
 ```bash
 pytest
 ```
 
-### Project Structure
+### 项目结构说明
 
-- `scanner.py` handles all file system traversal with thread-pool parallelism
-- `analyzer.py` processes raw scan results into structured statistics
-- `file_type_identifier.py` reads file headers to identify types by magic bytes
-- `duplicate_finder.py` uses a three-layer hash strategy (size filter → head-tail preview → full hash)
-- `cache.py` persists scan results as pickle with a 24-hour expiration window
-- `suggestion.py` categorizes findings by risk level for safe batch cleanup
-- `config.py` saves user preferences across sessions
-- `widgets/` contains all custom Textual widgets composing the TUI
-
----
-
-## ❓ FAQ
-
-**Q: Why do I see "permission denied" errors during scanning?**
-
-A: On Windows, system directories and other users' folders require administrator privileges. GoodClean will skip these directories and show a tip on the welcome screen explaining how to run as administrator.
-
-**Q: Does GoodClean modify my files without asking?**
-
-A: No. All delete operations require explicit confirmation. Safe cleanup (`x`) only targets files marked as low-risk (like `.tmp`, `.pyc`, `.log`).
-
-**Q: Can I recover files after deletion?**
-
-A: If you use `d` (trash), files are moved to the system trash and can be recovered. If you use `D` (permanent delete), they are gone immediately.
-
-**Q: Where is scan cache stored?**
-
-A: In your system's standard app-data directory. Use `goodclean --cache-info` to see the exact path.
+- `scanner.py` —— 线程池并行的文件系统遍历
+- `analyzer.py` —— 将原始扫描结果处理为结构化统计数据
+- `file_type_identifier.py` —— 读取文件头魔数识别文件类型
+- `duplicate_finder.py` —— 三层哈希去重（大小预筛 → 头尾采样 → 全量哈希确认）
+- `cache.py` —— 将扫描结果持久化为 JSON，24 小时过期
+- `suggestion.py` —— 按风险级别分类，支持安全批量清理
+- `config.py` —— 跨会话保存用户偏好设置
+- `widgets/` —— 所有自定义 Textual 组件，构成 TUI 界面
 
 ---
 
-## 📄 License
+## ❓ 常见问题
 
-This project is licensed under the [MIT License](LICENSE).
+**Q: 扫描时为什么会出现"权限被拒绝"的错误？**
+
+A: 在 Windows 上，系统目录和其他用户的文件夹需要管理员权限才能访问。GoodClean 会跳过这些目录，并在欢迎界面上提示如何以管理员身份运行。
+
+**Q: GoodClean 会在未经确认的情况下修改我的文件吗？**
+
+A: 不会。所有删除操作都需要显式确认。安全清理（`x`）只针对标记为低风险的文件（如 `.tmp`、`.pyc`、`.log`）。
+
+**Q: 删除后的文件可以恢复吗？**
+
+A: 如果使用 `d`（回收站），文件会被移到系统回收站，可以恢复。如果使用 `D`（永久删除），文件将立即被删除，无法恢复。
+
+**Q: 扫描缓存存储在哪里？**
+
+A: 存储在系统标准的应用数据目录中。使用 `goodclean --cache-info` 可查看具体路径。
+
+---
+
+## 📄 许可证
+
+本项目采用 [MIT License](LICENSE) 开源许可。
